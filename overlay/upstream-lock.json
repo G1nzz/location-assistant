@@ -1,0 +1,17 @@
+{
+  "sidestore": {
+    "repository": "https://github.com/SideStore/SideStore",
+    "tag": "0.7.0-alpha",
+    "commit": "6032424a0e56c1c319762e786099bdd9186a238b"
+  },
+  "dependencies": [
+    {"repository": "SideStore/SideSign", "commit": "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d", "path": "Dependencies/SideSign"},
+    {"repository": "SideStore/minimuxer", "commit": "98c3c79982f813878e922ab42f9545314a700f0c", "path": "Dependencies/minimuxer"}
+  ],
+  "stikdebug": {
+    "repository": "https://github.com/StikDebug/StikDebug",
+    "tag": "3.1.13",
+    "commit": "4bdfc92aa7cebd7a534f1e1ef56415f5727402de",
+    "ffi_sha256": "4db23fe1d342927b9480bb9a8577f219994365621dc28aa0018e23ea1990ecc8"
+  }
+}

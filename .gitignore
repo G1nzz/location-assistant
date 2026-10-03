@@ -1,0 +1,9 @@
+project/
+.build/
+*.ipa
+*.mobiledevicepairing
+*.p12
+*.p8
+*.mobileprovision
+CodeSigning.xcconfig
+__pycache__/
