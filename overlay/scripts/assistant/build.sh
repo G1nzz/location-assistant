@@ -7,12 +7,12 @@ mkdir -p .build/artifacts
 python3 -B scripts/assistant/check_project.py
 xcrun swiftc AltStore/LocationAssistant/AssistantCoordinate.swift tests/assistant/main.swift -o .build/coordinate-tests
 .build/coordinate-tests
-xcodebuild archive -project AltStore.xcodeproj -scheme SideStore -sdk iphoneos \
+xcodebuild -quiet archive -project AltStore.xcodeproj -scheme SideStore -sdk iphoneos \
   -configuration Release -destination 'generic/platform=iOS' \
   -archivePath .build/Assistant -derivedDataPath .build/DerivedData \
   -clonedSourcePackagesDirPath .build/SourcePackages \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM=XYZ0123456 \
-  ORG_IDENTIFIER=com.locationassistant | tee .build/build.log
+  ORG_IDENTIFIER=com.locationassistant 2>&1 | tee .build/build.log
 app=".build/Assistant.xcarchive/Products/Applications/SideStore.app"
 test -d "$app"
 ldid -SAltStore/Resources/ReleaseEntitlements.plist "$app/SideStore"

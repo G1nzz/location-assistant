@@ -16,8 +16,9 @@ def main():
         if not match: raise RuntimeError(f"Missing app configuration: {config_id}")
         settings = match.group(2)
         settings = settings.replace('LIBRARY_SEARCH_PATHS = "$(inherited)";', 'LIBRARY_SEARCH_PATHS = "$(inherited) $(SRCROOT)/Vendor/idevice";')
-        if '"-lidevice_ffi"' not in settings:
-            settings = settings.replace('"-w",', '"-w",\n\t\t\t\t\t"-lidevice_ffi",')
+        settings = settings.replace('"-lidevice_ffi",', '"$(SRCROOT)/Vendor/idevice/libidevice_ffi.a",')
+        if '"$(SRCROOT)/Vendor/idevice/libidevice_ffi.a"' not in settings:
+            settings = settings.replace('"-w",', '"-w",\n\t\t\t\t\t"$(SRCROOT)/Vendor/idevice/libidevice_ffi.a",')
         settings = settings.replace('IPHONEOS_DEPLOYMENT_TARGET = 15.0;', 'IPHONEOS_DEPLOYMENT_TARGET = 17.4;')
         settings = settings.replace('TARGETED_DEVICE_FAMILY = "1,2,3";', 'TARGETED_DEVICE_FAMILY = "1,2";')
         settings = settings.replace('SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";', 'SUPPORTED_PLATFORMS = "iphoneos";')
@@ -43,5 +44,10 @@ def main():
     # Remove IPA opening from the public assistant UI. SideStore backend remains intact.
     plist.pop("CFBundleDocumentTypes", None)
     plist_path.write_bytes(plistlib.dumps(plist, sort_keys=False))
+    identity = ROOT / "Shared/Extensions/Bundle+AltStore.swift"
+    identity.write_text(identity.read_text(encoding="utf-8").replace('"com.SideStore.SideStore"', '"com.locationassistant.personal"'), encoding="utf-8")
+    for name in ["AltStore/Resources/ReleaseEntitlements.plist", "AltWidget/Resources/ReleaseEntitlements.plist"]:
+        path = ROOT / name
+        path.write_text(path.read_text(encoding="utf-8").replace("com.SideStore.SideStore", "com.locationassistant.personal"), encoding="utf-8")
 
 if __name__ == "__main__": main()

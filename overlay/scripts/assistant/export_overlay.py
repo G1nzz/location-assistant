@@ -6,6 +6,9 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 FILES = [
+    "AltStore/Authentication/Authentication.storyboard",
+    "Shared/Extensions/Bundle+AltStore.swift",
+    "AltStore/Resources/ReleaseEntitlements.plist", "AltWidget/Resources/ReleaseEntitlements.plist",
     "AltStore/TabBarController.swift", "AltStore/AppDelegate.swift",
     "AltStore/Managing Apps/AppManager.swift", "AltStore/Info.plist",
     "AltStore.xcodeproj/project.pbxproj", "Build.xcconfig",

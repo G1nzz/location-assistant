@@ -19,6 +19,9 @@ def main():
     assert plist["CFBundleDisplayName"] == "定位助手"
     assert "CFBundleDocumentTypes" not in plist
     assert "BASE_BUNDLE_ID = com.locationassistant.personal" in (ROOT / "Build.xcconfig").read_text()
+    assert '"com.SideStore.SideStore"' not in (ROOT / "Shared/Extensions/Bundle+AltStore.swift").read_text()
+    for name in ["AltStore/Resources/ReleaseEntitlements.plist", "AltWidget/Resources/ReleaseEntitlements.plist"]:
+        assert "com.SideStore.SideStore" not in (ROOT / name).read_text()
     for path in ROOT.rglob("*.plist"):
         if ".build" in path.parts or "Dependencies" in path.parts: continue
         try: plistlib.loads(path.read_bytes())

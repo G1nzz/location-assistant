@@ -162,9 +162,9 @@ static func clear(ip: String) -> Int32 {
 }
 
 static func check(ip: String) -> Int32 {
-    let alreadyConnected = LocationSimulationState.locationSimulation != nil
+    LocationSimulationState.cleanup()
     let code = connect(ip: ip)
-    if !alreadyConnected { LocationSimulationState.cleanup() }
+    LocationSimulationState.cleanup()
     return code
 }
 

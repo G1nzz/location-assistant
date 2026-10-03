@@ -141,8 +141,8 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    func checkConnection() {
-        guard !busy else { return }
+    func checkConnection(completion: @escaping (String) -> Void) {
+        guard !busy, !needsClear else { return }
         busy = true
         let ip = deviceIP
         workQueue.async {
@@ -150,6 +150,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
             DispatchQueue.main.async {
                 self.busy = false
                 self.status = code == 0 ? "定位服务连接成功；续签连接会在刷新时另行检查" : Self.failure(code)
+                completion(self.status)
             }
         }
     }

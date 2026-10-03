@@ -47,7 +47,9 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
                 self.tableView.reloadData()
             })
             present(alert, animated: true)
-        case 2: session.checkConnection()
+        case 2:
+            if session.needsClear { show("请先清除模拟定位", "检查会建立新的连接，请先清除当前模拟。"); return }
+            session.checkConnection { [weak self] message in self?.show("定位连接检查", message) }
         case 3:
             show("安装与恢复指南", "首次：电脑签名安装 → 开启开发者模式 → 导入本设备配对文件 → 连接 Wi-Fi 和 LocalDevVPN。\n\n使用：选点 → 开始模拟 → 在地图 App 验证当前位置。\n\n结束：保持 VPN 连接 → 清除模拟定位 → 地图重新定位 → 再关闭 VPN。清除失败可重试；仍失败则关闭 VPN、重启设备，先验证真实位置。\n\n续签：在到期前手动刷新。每台设备分别签名和配对。")
         case 4:
