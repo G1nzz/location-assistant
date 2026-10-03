@@ -22,7 +22,7 @@ fi
 mkdir -p .build/package/Payload
 cp -R "$app" .build/package/Payload/
 (cd .build/package && zip -qry ../artifacts/LocationAssistant.ipa Payload)
-shasum -a 256 .build/artifacts/LocationAssistant.ipa > .build/artifacts/SHA256SUMS.txt
-cp upstream-lock.json THIRD_PARTY_NOTICES.md .build/artifacts/
+(cd .build/artifacts && shasum -a 256 LocationAssistant.ipa > SHA256SUMS.txt)
+cp upstream-lock.json THIRD_PARTY_NOTICES.md LICENSE Vendor/StikDebug-LICENSE .build/artifacts/
 cp docs/安装与恢复指南.md docs/验收记录.md .build/artifacts/
 echo 'IPA generated; on-device validation is still required.'

@@ -8,6 +8,10 @@ ROOT = Path(__file__).resolve().parents[2]
 FILES = [
     "AltStore/Authentication/Authentication.storyboard",
     "Shared/Extensions/Bundle+AltStore.swift",
+    "SideStore/Core/Pairing/PairingFileManager.swift",
+    "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+    "AltStore/Intents/App Intents/AppShortcuts.swift",
+    "AltStore/Intents/Legacy/IntentHandler.swift",
     "AltStore/Resources/ReleaseEntitlements.plist", "AltWidget/Resources/ReleaseEntitlements.plist",
     "AltStore/TabBarController.swift", "AltStore/AppDelegate.swift",
     "AltStore/Managing Apps/AppManager.swift", "AltStore/Info.plist",

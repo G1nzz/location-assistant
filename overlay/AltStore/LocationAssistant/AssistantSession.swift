@@ -20,6 +20,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
     private override init() {
         needsClear = UserDefaults.standard.bool(forKey: "assistant.needsClear")
         super.init()
+        synchronizeSigningConnection()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
         locationManager.distanceFilter = CLLocationDistanceMax
@@ -31,7 +32,16 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
 
     var deviceIP: String {
         get { UserDefaults.standard.string(forKey: "assistant.deviceIP") ?? "10.7.0.1" }
-        set { UserDefaults.standard.set(newValue, forKey: "assistant.deviceIP") }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "assistant.deviceIP")
+            synchronizeSigningConnection()
+        }
+    }
+
+    private func synchronizeSigningConnection() {
+        ConnectionConfig.shared.useLocalVPN = true
+        ConnectionConfig.shared.overrideTunnelPeerIp = deviceIP
+        ConnectionConfig.shared.remoteServerIp = deviceIP
     }
 
     func beginMaintenance() -> Bool {
@@ -40,6 +50,22 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         return true
     }
     func endMaintenance() { busy = false }
+
+    func acknowledgeRecoveryAfterRestart() {
+        guard !busy, activeCoordinate == nil else { return }
+        busy = true
+        generation += 1
+        stopKeepAlive()
+        locationManager.stopUpdatingLocation()
+        workQueue.async {
+            AssistantNative.disconnect()
+            DispatchQueue.main.async {
+                self.setNeedsClear(false)
+                self.busy = false
+                self.status = "已记录你在重启后确认真实位置恢复；本 App 未自动验证"
+            }
+        }
+    }
 
     func start(_ coordinate: CLLocationCoordinate2D) {
         guard !busy, AssistantCoordinate.valid(coordinate) else { return }

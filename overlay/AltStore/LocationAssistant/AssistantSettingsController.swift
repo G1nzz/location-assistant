@@ -14,10 +14,10 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
         title = "设置"
         session.$busy.sink { [weak self] _ in self?.tableView.reloadData() }.store(in: &observations)
     }
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 6 }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 7 }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        cell.textLabel?.text = ["导入本设备配对文件", "设备 IP", "检查定位连接", "安装与恢复指南", "脱敏诊断信息", "开源项目与许可证"][indexPath.row]
+        cell.textLabel?.text = ["导入本设备配对文件", "设备 IP", "检查定位连接", "安装与恢复指南", "脱敏诊断信息", "开源项目与许可证", "重启后确认真实位置已恢复"][indexPath.row]
         if indexPath.row == 1 { cell.detailTextLabel?.text = session.deviceIP }
         cell.textLabel?.textColor = session.busy || importing ? .secondaryLabel : .label
         cell.accessoryType = .disclosureIndicator
@@ -55,8 +55,15 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
         case 4:
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
             show("脱敏诊断", "App：\(version)\n系统：\(UIDevice.current.systemVersion)\n设备类型：\(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone")\n操作进行中：\(session.busy ? "是" : "否")\n可能遗留模拟：\(session.needsClear ? "是" : "否")\n\n不包含账号、UDID、配对内容、IP 或位置收藏。")
-        default:
+        case 5:
             show("开源声明", "基于 SideStore 0.7.0-alpha 与 StikDebug 3.1.13，保留 AGPL-3.0 许可证及原作者声明。\n\nSideStore：github.com/SideStore/SideStore\nStikDebug：github.com/StikDebug/StikDebug\n\n对应源码与依赖说明随安装包提供，详见仓库 THIRD_PARTY_NOTICES.md。")
+        default:
+            guard session.needsClear else { show("无需重置", "当前没有遗留模拟的记录。"); return }
+            guard session.activeCoordinate == nil else { show("模拟仍在运行", "请先点击定位页的清除模拟定位。"); return }
+            let alert = UIAlertController(title: "仅用于重启后恢复", message: "此操作只重置本 App 的未知状态记录，不会清除系统定位。只有已重启设备，并在地图 App 中确认真实位置恢复后，才可继续。", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+            alert.addAction(UIAlertAction(title: "我已重启并确认恢复", style: .default) { _ in self.session.acknowledgeRecoveryAfterRestart() })
+            present(alert, animated: true)
         }
     }
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
