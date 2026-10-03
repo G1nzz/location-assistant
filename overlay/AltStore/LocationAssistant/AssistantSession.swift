@@ -245,6 +245,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     static func safeError(_ error: Error) -> String {
+        if let certificateError = error as? AssistantCertificateError { return certificateError.localizedDescription }
         let ns = error as NSError
         if error is CancellationError { return "操作已取消" }
         // Native messages and auth failures can contain account or device identifiers.

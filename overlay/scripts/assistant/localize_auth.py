@@ -32,6 +32,7 @@ def main():
     for old, new in REPLACEMENTS.items():
         for attribute in ("text", "title"):
             content = content.replace(f'{attribute}="{old}"', f'{attribute}="{new}"')
+    content = content.replace("Your Apple ID is used to configure apps so they can be installed on this device. Your credentials will be stored securely in this device's Keychain and sent only to Apple for authentication.", "Apple 账号用于向 Apple 验证身份及申请自身续签所需的描述文件。凭据保存在本设备钥匙串。已有证书还需要对应私钥，请先在设置中导入续签证书。")
     path.write_text(content, encoding="utf-8")
 
 if __name__ == "__main__": main()

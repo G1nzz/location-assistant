@@ -9,6 +9,8 @@ FILES = [
     "AltStore/Authentication/Authentication.storyboard",
     "Shared/Extensions/Bundle+AltStore.swift",
     "SideStore/Core/Pairing/PairingFileManager.swift",
+    "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+    "SideStore/Utils/importexport/ImportExport.swift",
     "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
     "AltStore/Intents/App Intents/AppShortcuts.swift",
     "AltStore/Intents/Legacy/IntentHandler.swift",

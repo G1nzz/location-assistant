@@ -7,6 +7,8 @@ mkdir -p .build/artifacts
 python3 -B scripts/assistant/check_project.py
 xcrun swiftc AltStore/LocationAssistant/AssistantCoordinate.swift tests/assistant/main.swift -o .build/coordinate-tests
 .build/coordinate-tests
+xcrun swiftc AltStore/LocationAssistant/AssistantSigningPolicy.swift tests/assistant/signing/main.swift -o .build/signing-tests
+.build/signing-tests
 xcodebuild -quiet archive -project AltStore.xcodeproj -scheme SideStore -sdk iphoneos \
   -configuration Release -destination 'generic/platform=iOS' \
   -archivePath .build/Assistant -derivedDataPath .build/DerivedData \

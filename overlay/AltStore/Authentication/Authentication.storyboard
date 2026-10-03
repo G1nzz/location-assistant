@@ -189,7 +189,7 @@
                                                     </label>
                                                     <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" verticalCompressionResistancePriority="249" textAlignment="natural" lineBreakMode="tailTruncation" numberOfLines="0" baselineAdjustment="alignBaselines" minimumScaleFactor="0.25" translatesAutoresizingMaskIntoConstraints="NO" id="on2-62-waY">
                                                         <rect key="frame" x="0.0" y="24.5" width="343" height="72"/>
-                                                        <string key="text">Your Apple ID is used to configure apps so they can be installed on this device. Your credentials will be stored securely in this device's Keychain and sent only to Apple for authentication.</string>
+                                                        <string key="text">Apple 账号用于向 Apple 验证身份及申请自身续签所需的描述文件。凭据保存在本设备钥匙串。已有证书还需要对应私钥，请先在设置中导入续签证书。</string>
                                                         <fontDescription key="fontDescription" type="system" pointSize="15"/>
                                                         <color key="textColor" white="1" alpha="0.75" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                                                         <nil key="highlightedColor"/>
