@@ -1,5 +1,6 @@
 import Foundation
 import SideSign
+import AnisetteKit
 
 actor AssistantLoginService {
     static let shared = AssistantLoginService()
