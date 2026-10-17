@@ -31,6 +31,11 @@ def main():
     lock = json.loads((ROOT / "upstream-lock.json").read_text())
     for dependency in lock["dependencies"]:
         source(dependency["repository"], dependency["commit"], ROOT / dependency["path"])
+    for patch in lock.get("patches", []):
+        source_file = ROOT / "patches/SideSign" / patch["path"]
+        if hashlib.sha256(source_file.read_bytes()).hexdigest() != patch["sha256"]:
+            raise RuntimeError("Authentication patch checksum mismatch")
+        shutil.copyfile(source_file, ROOT / "Dependencies/SideSign" / patch["path"])
     vendor = ROOT / "Vendor/idevice"
     library = vendor / "libidevice_ffi.a"
     if not library.exists():

@@ -72,7 +72,9 @@ final class AssistantAccountController: UITableViewController {
                     self.session.endMaintenance()
                     switch result {
                     case .success: self.accountStatus = "签名账号登录成功"
-                    case .failure(let error): self.accountStatus = "登录未完成：\(AssistantSession.safeError(error))"
+                    case .failure(let error):
+                        self.accountStatus = "登录未完成：\(AssistantSession.safeError(error))"
+                        self.session.recordFailure(stage: "账号与证书验证", error: error)
                     }
                     self.tableView.reloadData()
                 }

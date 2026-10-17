@@ -64,7 +64,9 @@ final class AssistantCertificateImporter: NSObject, UIDocumentPickerDelegate {
             } catch {
                 DispatchQueue.main.async {
                     self.finish()
-                    self.show("导入失败", AssistantCertificateError.invalidFile.localizedDescription)
+                    if let storage = error as? AssistantLoginError {
+                        self.show("证书未保存", storage.localizedDescription)
+                    } else { self.show("导入失败", AssistantCertificateError.invalidFile.localizedDescription) }
                 }
             }
         }

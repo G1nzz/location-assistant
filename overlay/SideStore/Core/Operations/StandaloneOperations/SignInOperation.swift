@@ -61,6 +61,7 @@ final class SignInOperation: BaseStandaloneOperation<StandaloneOperationContext,
             debugLog("[SignInOperation] execute() took: \(String(format: "%.3fs", elapsed))")
         }
         try await super.executePreconditionCheck(parentProgress: parentProgress)
+        try AssistantLocalKeychain.migrateIfNeeded()
 
         do {
             let authResult: SignInResult

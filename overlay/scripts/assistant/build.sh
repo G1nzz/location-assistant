@@ -9,6 +9,8 @@ xcrun swiftc AltStore/LocationAssistant/AssistantCoordinate.swift tests/assistan
 .build/coordinate-tests
 xcrun swiftc AltStore/LocationAssistant/AssistantSigningPolicy.swift tests/assistant/signing/main.swift -o .build/signing-tests
 .build/signing-tests
+xcrun swiftc AltStore/LocationAssistant/AssistantLoginPolicy.swift AltStore/LocationAssistant/AssistantCredentialMigration.swift tests/assistant/login/main.swift -o .build/login-tests
+.build/login-tests
 xcodebuild -quiet archive -project AltStore.xcodeproj -scheme SideStore -sdk iphoneos \
   -configuration Release -destination 'generic/platform=iOS' \
   -archivePath .build/Assistant -derivedDataPath .build/DerivedData \
@@ -27,4 +29,5 @@ cp -R "$app" .build/package/Payload/
 (cd .build/artifacts && shasum -a 256 LocationAssistant.ipa > SHA256SUMS.txt)
 cp upstream-lock.json THIRD_PARTY_NOTICES.md LICENSE Vendor/StikDebug-LICENSE .build/artifacts/
 cp docs/安装与恢复指南.md docs/验收记录.md .build/artifacts/
+cp docs/0.1.2-登录修复与更新.md .build/artifacts/
 echo 'IPA generated; on-device validation is still required.'

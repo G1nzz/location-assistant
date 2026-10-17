@@ -10,6 +10,9 @@ FILES = [
     "Shared/Extensions/Bundle+AltStore.swift",
     "SideStore/Core/Pairing/PairingFileManager.swift",
     "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+    "AltStore/Core/Components/Keychain.swift", "AltStore/Authentication/AuthenticationViewController.swift",
+    "SideStore/Core/Certificates/CertificateManager.swift", "SideStore/Core/Certificates/CodeSignValidator.swift",
+    "SideStore/Core/Anisette/AnisetteProvider.swift",
     "SideStore/Utils/importexport/ImportExport.swift",
     "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
     "AltStore/Intents/App Intents/AppShortcuts.swift",
@@ -25,7 +28,7 @@ FILES = [
 def main(destination):
     destination.mkdir(parents=True, exist_ok=True)
     selected = list(FILES)
-    for directory in ["AltStore/LocationAssistant", "AltStore/zh-Hans.lproj", "scripts/assistant", "tests/assistant", "docs"]:
+    for directory in ["AltStore/LocationAssistant", "AltStore/zh-Hans.lproj", "scripts/assistant", "tests/assistant", "docs", "patches"]:
         selected += [str(path.relative_to(ROOT)).replace("\\", "/") for path in (ROOT / directory).rglob("*") if path.is_file()]
     for name in sorted(set(selected)):
         target = destination / "overlay" / name

@@ -1,6 +1,7 @@
 import UIKit
 import CoreLocation
 import Combine
+import SideSign
 
 @MainActor
 final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDelegate {
@@ -153,7 +154,9 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
                     self.busy = false
                     switch result {
                     case .success: self.status = "刷新流程完成，请重新打开 App 核对到期时间"
-                    case .failure(let error): self.status = "续签失败：\(Self.safeError(error))"
+                    case .failure(let error):
+                        self.status = "续签失败：\(Self.safeError(error))"
+                        self.recordFailure(stage: "自身续签", error: error)
                     }
                 }
             }
@@ -244,11 +247,33 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
+    var lastDiagnostic: String { UserDefaults.standard.string(forKey: "assistant.lastFailure") ?? "尚未记录失败" }
+
+    func recordFailure(stage: String, error: Error) {
+        UserDefaults.standard.set("阶段：\(stage)\n\(Self.safeError(error))", forKey: "assistant.lastFailure")
+    }
+
     static func safeError(_ error: Error) -> String {
         if let certificateError = error as? AssistantCertificateError { return certificateError.localizedDescription }
-        let ns = error as NSError
+        if let loginError = error as? AssistantLoginError { return loginError.localizedDescription }
         if error is CancellationError { return "操作已取消" }
-        // Native messages and auth failures can contain account or device identifiers.
-        return "请检查网络、签名账号和配对文件（错误代码 \(ns.code)）"
+        if let serverError = error as? SideSign.ServerError,
+           case .underlyingError(let code, _) = serverError {
+            return AssistantErrorPresentation.describe(domain: "SideSign.DeveloperPortalError", code: code)
+        }
+        if let operation = error as? OperationError {
+            switch operation {
+            case .unknownUDID, .invalidPairingFile, .pairingNotComplete:
+                return "本设备配对缺失或无效。请核对配对文件；无需重新导入签名证书。"
+            case .noVPN, .invalidVPN, .noDevice, .notReachable, .minimuxerNotStarted:
+                return "续签的设备连接未就绪。请检查 Wi-Fi、LocalDevVPN 及本设备配对；登录服务检查不能代替此连接检查。"
+            case .noConnection: return "续签前需要连接 Wi-Fi，并连接 LocalDevVPN。"
+            case .certificateRevoked, .certificateExpired, .certificateChanged:
+                return "当前安装签名与有效签名证书不一致或已失效。请保留 App 和数据，使用电脑覆盖签名安装；不会自动撤销证书。"
+            default: break
+            }
+        }
+        let ns = error as NSError
+        return AssistantErrorPresentation.describe(domain: ns.domain, code: ns.code)
     }
 }

@@ -15,11 +15,12 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
         title = "设置"
         session.$busy.sink { [weak self] _ in self?.tableView.reloadData() }.store(in: &observations)
     }
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 8 }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 11 }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        cell.textLabel?.text = ["导入本设备配对文件", "设备 IP", "检查定位连接", "安装与恢复指南", "脱敏诊断信息", "开源项目与许可证", "重启后确认真实位置已恢复", "导入续签证书"][indexPath.row]
+        cell.textLabel?.text = ["导入本设备配对文件", "设备 IP", "检查定位连接", "安装与恢复指南", "脱敏诊断信息", "开源项目与许可证", "重启后确认真实位置已恢复", "导入续签证书", "登录服务", "检查登录服务", "重建登录认证缓存"][indexPath.row]
         if indexPath.row == 1 { cell.detailTextLabel?.text = session.deviceIP }
+        if indexPath.row == 8 { cell.detailTextLabel?.text = AssistantLoginPolicy.usesCompatibleService ? "自动匹配（推荐）" : "原有配置" }
         cell.textLabel?.textColor = session.busy || importing ? .secondaryLabel : .label
         cell.accessoryType = .disclosureIndicator
         return cell
@@ -55,7 +56,7 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
             show("安装与恢复指南", "首次：电脑签名安装 → 开启开发者模式 → 导入本设备配对文件 → 连接 Wi-Fi 和 LocalDevVPN。\n\n使用：选点 → 开始模拟 → 在地图 App 验证当前位置。\n\n结束：保持 VPN 连接 → 清除模拟定位 → 地图重新定位 → 再关闭 VPN。清除失败可重试；仍失败则关闭 VPN、重启设备，先验证真实位置。\n\n续签：在到期前手动刷新。每台设备分别签名和配对。")
         case 4:
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
-            show("脱敏诊断", "App：\(version)\n系统：\(UIDevice.current.systemVersion)\n设备类型：\(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone")\n操作进行中：\(session.busy ? "是" : "否")\n可能遗留模拟：\(session.needsClear ? "是" : "否")\n\n不包含账号、UDID、配对内容、IP 或位置收藏。")
+            show("脱敏诊断", "App：\(version)\n系统：\(UIDevice.current.systemVersion)\n设备类型：\(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone")\n操作进行中：\(session.busy ? "是" : "否")\n可能遗留模拟：\(session.needsClear ? "是" : "否")\n\n最近失败：\n\(session.lastDiagnostic)\n\n不包含账号、UDID、配对内容、IP 或位置收藏。")
         case 5:
             show("开源声明", "基于 SideStore 0.7.0-alpha 与 StikDebug 3.1.13，保留 AGPL-3.0 许可证及原作者声明。\n\nSideStore：github.com/SideStore/SideStore\nStikDebug：github.com/StikDebug/StikDebug\n\n对应源码与依赖说明随安装包提供，详见仓库 THIRD_PARTY_NOTICES.md。")
         case 6:
@@ -65,9 +66,38 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
             alert.addAction(UIAlertAction(title: "取消", style: .cancel))
             alert.addAction(UIAlertAction(title: "我已重启并确认恢复", style: .default) { _ in self.session.acknowledgeRecoveryAfterRestart() })
             present(alert, animated: true)
-        default:
+        case 7:
             if session.needsClear { show("请先清除模拟定位", "清除模拟后再导入续签证书。"); return }
             certificateImporter.start()
+        case 8:
+            let alert = UIAlertController(title: "登录服务", message: "自动匹配会从固定认证服务获取匹配的客户端配置。Apple 账号密码仍提交给 Apple；签名证书与配对文件不会发送给认证服务。", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "自动匹配（推荐）", style: .default) { _ in
+                UserDefaults.standard.set(false, forKey: AssistantLoginPolicy.originalServiceKey)
+                self.tableView.reloadData()
+            })
+            alert.addAction(UIAlertAction(title: "使用原有配置", style: .default) { _ in
+                UserDefaults.standard.set(true, forKey: AssistantLoginPolicy.originalServiceKey)
+                self.tableView.reloadData()
+            })
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+            present(alert, animated: true)
+        case 9, 10:
+            guard session.beginMaintenance() else { return }
+            Task {
+                do {
+                    if indexPath.row == 9 { try await AssistantLoginService.shared.checkService() }
+                    else { try await AssistantLoginService.shared.resetCache() }
+                    session.endMaintenance()
+                    if indexPath.row == 9 {
+                        show("登录服务可连接", "已读取有效客户端配置。尚未验证 Apple 账号，也尚未续签；请返回续签页登录。")
+                    } else { show("登录认证缓存已重建", "未修改 Apple 账号、签名证书、配对或收藏。请返回续签页登录。") }
+                } catch {
+                    session.endMaintenance()
+                    session.recordFailure(stage: "登录服务检查", error: error)
+                    show("登录服务未就绪", AssistantSession.safeError(error))
+                }
+            }
+        default: break
         }
     }
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
