@@ -1,7 +1,19 @@
 import Foundation
 
 enum AssistantLoginPolicy {
-    static let serviceURLs = ["https://mac-ani.jkcoxson.com", "https://ani.jkcoxson.com"]
+    static let allServiceURLs = ["https://mac-ani.jkcoxson.com", "https://ani.jkcoxson.com", "https://ani.sidestore.io", "https://ani.sidestore.zip"]
+    static let selectedServiceKey = "assistant.selectedLoginService"
+    static var serviceURLs: [String] {
+        if let selected = UserDefaults.standard.string(forKey: selectedServiceKey), allServiceURLs.contains(selected) { return [selected] }
+        return allServiceURLs
+    }
+    static var serviceLabel: String {
+        if !usesCompatibleService { return "原有配置" }
+        if let selected = UserDefaults.standard.string(forKey: selectedServiceKey), allServiceURLs.contains(selected) {
+            return URL(string: selected)?.host ?? "指定服务"
+        }
+        return "自动选择"
+    }
     static let originalServiceKey = "assistant.useOriginalLoginService"
     static var usesCompatibleService: Bool { !UserDefaults.standard.bool(forKey: originalServiceKey) }
 
@@ -40,7 +52,8 @@ enum AssistantErrorPresentation {
     static func describe(domain: String, code: Int, authenticationCode: Int? = nil) -> String {
         let actualCode = authenticationCode ?? code
         switch actualCode {
-        case -80045: return "Apple 暂时拒绝此登录请求（-80045）。请在设置中检查登录服务后重试；无需更换设备 Apple ID 或重新导入证书。"
+        case -80045, -90010: return "Apple 拒绝了签名登录请求（\(actualCode)）。认证服务可访问不代表 Apple 允许登录；此错误不证明配对或证书损坏，也不能靠重装 App 保证解决。请保留错误码，检查上游登录兼容性后再试。"
+        case -22421: return "Apple 登录验证未通过（-22421）。可能与认证数据或客户端兼容性有关，仅凭此代码不能确定原因；不要据此撤销签名证书。"
         case -22411: return "Apple 双重验证未完成（-22411）。请完成受信任设备收到的验证码验证；仍失败时保留此代码。"
         case -22406: return "Apple 签名账号或密码未通过验证（-22406）。请核对工具中的签名账号。"
         case -45061: return "登录认证缓存已失效（-45061）。请在设置中重建登录服务缓存，再登录。此操作不会撤销签名证书。"

@@ -11,9 +11,8 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
     @Published private(set) var activeCoordinate: CLLocationCoordinate2D?
     @Published private(set) var needsClear: Bool
     private let locationManager = CLLocationManager()
-    private var progressObservation: NSKeyValueObservation?
-    private var refreshGroup: RefreshGroup?
     private var keepAlive: DispatchSourceTimer?
+    private var keepAliveTicket: AssistantCommandTicket?
     private var generation = 0
     private let workQueue = DispatchQueue(label: "locationassistant.commands", qos: .userInitiated)
     private let persistenceKey = "assistant.needsClear"
@@ -138,38 +137,6 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
-    func refreshSelf(presenting controller: UIViewController) {
-        prepareForRefresh { ready in
-            guard ready else { return }
-            guard let app = InstalledApp.fetchAltStore(in: DatabaseManager.shared.viewContext) else {
-                self.busy = false
-                self.status = "尚未建立自身签名记录，请完成首次安装与账号登录后重试"
-                return
-            }
-            self.status = "正在刷新自身签名…"
-            let group = AppManager.shared.refreshSelfForAssistant(app, presentingViewController: controller) { result in
-                DispatchQueue.main.async {
-                    self.progressObservation = nil
-                    self.refreshGroup = nil
-                    self.busy = false
-                    switch result {
-                    case .success: self.status = "刷新流程完成，请重新打开 App 核对到期时间"
-                    case .failure(let error):
-                        self.status = "续签失败：\(Self.safeError(error))"
-                        self.recordFailure(stage: "自身续签", error: error)
-                    }
-                }
-            }
-            self.refreshGroup = group
-            self.progressObservation = group.progress.observe(\.fractionCompleted, options: [.new]) { progress, _ in
-                let percent = Int(progress.fractionCompleted * 100)
-                DispatchQueue.main.async {
-                    if self.refreshGroup != nil { self.status = "正在刷新自身签名：\(percent)%" }
-                }
-            }
-        }
-    }
-
     func checkConnection(completion: @escaping (String) -> Void) {
         guard !busy, !needsClear else { return }
         busy = true
@@ -211,9 +178,12 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         // but never poll UI/search. The serial timer cannot queue overlapping native calls.
         guard #available(iOS 26.0, *) else { return }
         let token = generation, ip = deviceIP
+        let ticket = AssistantCommandTicket()
+        keepAliveTicket = ticket
         let timer = DispatchSource.makeTimerSource(queue: workQueue)
         timer.schedule(deadline: .now() + 4, repeating: 4, leeway: .milliseconds(500))
         timer.setEventHandler { [weak self] in
+            guard !ticket.isCancelled else { return }
             let code = AssistantNative.set(ip: ip, coordinate: coordinate)
             if code != 0 {
                 DispatchQueue.main.async {
@@ -229,7 +199,12 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         timer.resume()
     }
 
-    private func stopKeepAlive() { keepAlive?.cancel(); keepAlive = nil }
+    private func stopKeepAlive() {
+        keepAliveTicket?.cancel()
+        keepAliveTicket = nil
+        keepAlive?.cancel()
+        keepAlive = nil
+    }
 
     @objc private func becameActive() {
         guard !busy, let coordinate = activeCoordinate else { return }
@@ -274,6 +249,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
             }
         }
         let ns = error as NSError
-        return AssistantErrorPresentation.describe(domain: ns.domain, code: ns.code)
+        let authenticationCode = AssistantFailureClassifier.authenticationCode(in: ns)
+        return AssistantErrorPresentation.describe(domain: ns.domain, code: ns.code, authenticationCode: authenticationCode)
     }
 }

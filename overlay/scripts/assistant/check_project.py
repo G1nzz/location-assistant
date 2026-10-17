@@ -19,6 +19,13 @@ def main():
     assert plist["CFBundleDisplayName"] == "定位助手"
     assert "CFBundleDocumentTypes" not in plist
     assert "BASE_BUNDLE_ID = com.locationassistant.personal" in (ROOT / "Build.xcconfig").read_text()
+    assert "MARKETING_VERSION = 0.2.0" in (ROOT / "Build.xcconfig").read_text()
+    launch = (ROOT / "AltStore/LaunchViewController.swift").read_text()
+    assert "updateAllSources" not in launch and "DatabaseManager.shared.start" not in launch
+    assert "signIn(" not in launch and "SideJITManager" not in launch
+    app_delegate = (ROOT / "AltStore/AppDelegate.swift").read_text()
+    assert "await AppBootManager.shared.performBootSequence()" not in app_delegate
+    assert "await AnisetteServersManager.shared.performDailySyncIfNeeded()" not in app_delegate
     assert '"com.SideStore.SideStore"' not in (ROOT / "Shared/Extensions/Bundle+AltStore.swift").read_text()
     for name in ["AltStore/Resources/ReleaseEntitlements.plist", "AltWidget/Resources/ReleaseEntitlements.plist"]:
         assert "com.SideStore.SideStore" not in (ROOT / name).read_text()

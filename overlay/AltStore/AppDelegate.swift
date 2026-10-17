@@ -138,12 +138,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 //        UserDefaults.standard.setValue(true, forKey: "com.apple.CoreData.SQLDebug")
         
 
-        // Trigger daily boot sync for Anisette servers if needed
-        if !UserDefaults.standard.useOnDeviceAnisette{
-            Task.detached {
-                await AnisetteServersManager.shared.performDailySyncIfNeeded()
-            }
-        }
+        // Authentication services are queried only during explicit signing actions.
 
         // Recreate Database if requested
         // NOTE: Userdefaults are local to the SideStore.app sandbox and are not shared
@@ -156,13 +151,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         
         
-        Task.detached {
-            debugLog("[AppDelegate] Boot sequence starting...")
-            await AppBootManager.shared.performBootSequence()
-            debugLog("[AppDelegate] Boot sequence completed.")
-        }
-        
-        
+        // Minimuxer starts on demand in AssistantSigningCoordinator.
+
         let isFirstLaunch = (UserDefaults.standard.firstLaunch == nil)
         if isFirstLaunch
         {
@@ -180,12 +170,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                 await Self.reconcileSelfReinstallationIfNeeded()
                 debugLog("Reconcile any staged drafts completed.")
                 
-                await WidgetDataManager.publishCurrentInstalledAppsIfNeeded(in: DatabaseManager.shared.viewContext)
                 
-                if isFirstLaunch
-                {
-                    AuthManager.shared.signOut()
-                }
 
                 // Perform one-time maintenance tasks after database is started
                 MaintenanceManager.shared.performMaintenanceIfNeeded()
@@ -207,7 +192,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         UserDefaults.standard.isDebugModeEnabled = true
         #endif
         
-        self.prepareForBackgroundFetch()
+        // Self refresh is manual; do not schedule upstream background app refresh.
         
         return true
     }
@@ -233,9 +218,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationWillEnterForeground(_ application: UIApplication)
     {
-        Task.detached {
-            await AppManager.shared.reconcileInstalledApps()
-        }
+        // The location page is independent of signing reconciliation.
+        // Signing preparation reads the installed app only when requested.
     }
 
     func applicationDidBecomeActive(_ application: UIApplication)

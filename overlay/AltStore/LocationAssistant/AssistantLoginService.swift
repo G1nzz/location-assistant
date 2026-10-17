@@ -36,6 +36,11 @@ actor AssistantLoginService {
         return result
     }
 
+    func clearMemoryCache() {
+        clients.removeAll()
+        SideSign.AnisetteDataManager.shared.clearCache()
+    }
+
     func fetch() async throws -> ALTAnisetteData {
         for address in AssistantLoginPolicy.serviceURLs {
             guard let server = URL(string: address) else { continue }
@@ -62,8 +67,7 @@ actor AssistantLoginService {
     }
 
     func resetCache() throws {
-        clients.removeAll()
-        SideSign.AnisetteDataManager.shared.clearCache()
+        clearMemoryCache()
         for address in AssistantLoginPolicy.serviceURLs {
             if let server = URL(string: address) { try AssistantLocalKeychain.write(nil, key: stateKey(server)) }
         }

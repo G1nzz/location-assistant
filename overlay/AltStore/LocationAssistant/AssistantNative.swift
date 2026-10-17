@@ -127,14 +127,18 @@ static func connect(ip: String) -> Int32 {
     }
 
     LocationSimulationState.remoteServer = nil
-
+    guard LocationSimulationState.locationSimulation != nil else {
+        LocationSimulationState.cleanup()
+        return LocationSimulationStatus.locationSimulation
+    }
     return 0
 }
 
 static func set(ip: String, coordinate: CLLocationCoordinate2D) -> Int32 {
     guard AssistantCoordinate.valid(coordinate) else { return 11 }
     let connected = connect(ip: ip)
-    guard connected == 0, let client = LocationSimulationState.locationSimulation else { return connected }
+    guard connected == 0 else { return connected }
+    guard let client = LocationSimulationState.locationSimulation else { return LocationSimulationStatus.locationSet }
     if let error = location_simulation_set(client, coordinate.latitude, coordinate.longitude) {
         idevice_error_free(error)
         LocationSimulationState.cleanup()

@@ -15,6 +15,16 @@ require(AssistantErrorPresentation.describe(domain: "NSURLErrorDomain", code: -1
 let unknown = AssistantErrorPresentation.describe(domain: "secret@example.test/token/device-id", code: 21)
 require(!unknown.contains("secret") && !unknown.contains("device-id"), "Arbitrary domains must not leak identifiers")
 require(!unknown.contains("配对文件"), "An unknown numeric code must not be diagnosed as invalid pairing")
+for code in [-22421, -90010, -80045] {
+    let description = AssistantErrorPresentation.describe(domain: "Apple", code: code)
+    require(description.contains(String(code)), "Keep the actual Apple code in the Chinese explanation")
+    require(!description.contains("密码未通过"), "Do not label a generic rejection as an incorrect password")
+}
+UserDefaults.standard.set("https://untrusted.invalid", forKey: AssistantLoginPolicy.selectedServiceKey)
+require(AssistantLoginPolicy.serviceURLs == AssistantLoginPolicy.allServiceURLs, "Unknown persisted endpoints must not receive authentication data")
+UserDefaults.standard.set("https://ani.sidestore.io", forKey: AssistantLoginPolicy.selectedServiceKey)
+require(AssistantLoginPolicy.serviceURLs == ["https://ani.sidestore.io"], "An explicit endpoint must not silently use another provider")
+UserDefaults.standard.removeObject(forKey: AssistantLoginPolicy.selectedServiceKey)
 print("Login metadata validation and safe error classification tests passed")
 
 let legacy = ["certificate": Data([1, 2]), "password": Data([3])]

@@ -20,7 +20,7 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         cell.textLabel?.text = ["导入本设备配对文件", "设备 IP", "检查定位连接", "安装与恢复指南", "脱敏诊断信息", "开源项目与许可证", "重启后确认真实位置已恢复", "导入续签证书", "登录服务", "检查登录服务", "重建登录认证缓存"][indexPath.row]
         if indexPath.row == 1 { cell.detailTextLabel?.text = session.deviceIP }
-        if indexPath.row == 8 { cell.detailTextLabel?.text = AssistantLoginPolicy.usesCompatibleService ? "自动匹配（推荐）" : "原有配置" }
+        if indexPath.row == 8 { cell.detailTextLabel?.text = AssistantLoginPolicy.serviceLabel }
         cell.textLabel?.textColor = session.busy || importing ? .secondaryLabel : .label
         cell.accessoryType = .disclosureIndicator
         return cell
@@ -70,11 +70,21 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
             if session.needsClear { show("请先清除模拟定位", "清除模拟后再导入续签证书。"); return }
             certificateImporter.start()
         case 8:
-            let alert = UIAlertController(title: "登录服务", message: "自动匹配会从固定认证服务获取匹配的客户端配置。Apple 账号密码仍提交给 Apple；签名证书与配对文件不会发送给认证服务。", preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "自动匹配（推荐）", style: .default) { _ in
+            let alert = UIAlertController(title: "登录服务", message: "从所选服务读取匹配配置。Apple 账号密码只提交给 Apple；证书与配对不发给认证服务。服务检查成功不能保证 Apple 登录成功。", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "自动选择", style: .default) { _ in
                 UserDefaults.standard.set(false, forKey: AssistantLoginPolicy.originalServiceKey)
+                UserDefaults.standard.removeObject(forKey: AssistantLoginPolicy.selectedServiceKey)
+                Task { await AssistantLoginService.shared.clearMemoryCache() }
                 self.tableView.reloadData()
             })
+            for address in AssistantLoginPolicy.allServiceURLs {
+                alert.addAction(UIAlertAction(title: URL(string: address)?.host ?? address, style: .default) { _ in
+                    UserDefaults.standard.set(false, forKey: AssistantLoginPolicy.originalServiceKey)
+                    UserDefaults.standard.set(address, forKey: AssistantLoginPolicy.selectedServiceKey)
+                    Task { await AssistantLoginService.shared.clearMemoryCache() }
+                    self.tableView.reloadData()
+                })
+            }
             alert.addAction(UIAlertAction(title: "使用原有配置", style: .default) { _ in
                 UserDefaults.standard.set(true, forKey: AssistantLoginPolicy.originalServiceKey)
                 self.tableView.reloadData()
@@ -118,7 +128,7 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
                     self.importing = false
                     self.session.endMaintenance()
                     self.tableView.reloadData()
-                    self.show("配对文件已保存", "请重新打开 App，让续签模块加载新配对文件。每台设备必须使用自己的文件；可再点击检查定位连接。")
+                    self.show("配对文件已保存", "每台设备必须使用自己的文件。请重新打开 App，让定位与续签连接加载新配对文件，再检查定位连接。配对文件与签名证书是两类不同文件。")
                 }
             } catch {
                 DispatchQueue.main.async {
