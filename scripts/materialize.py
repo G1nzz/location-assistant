@@ -29,6 +29,10 @@ def main():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zipped.open(entry) as inp, target.open("wb") as out: shutil.copyfileobj(inp, out)
     shutil.copytree(ROOT / "overlay", project, dirs_exist_ok=True)
+    # Root files are the source of truth; an old overlay copy must not silently
+    # disable a pinned patch or publish stale notices in the build product.
+    for name in ["upstream-lock.json", "THIRD_PARTY_NOTICES.md"]:
+        shutil.copyfile(ROOT / name, project / name)
     print(f"Materialized SideStore {commit} with assistant overlay")
 
 if __name__ == "__main__": main()

@@ -28,6 +28,19 @@
       "upstream_commit": "752d1ef602aa792a432ffa1e71646dc1ecf7363c",
       "path": "Sources/DeveloperPortal/Authentication.swift",
       "sha256": "590f1af0b5e6393a7cd51d6e5c02a94e8f3d22b3ff82e2a463a13912a3f166f4"
+    },
+    {
+      "repository": "SideStore/SideSign",
+      "path": "Sources/Anisette/AnisetteSocketDeadline.swift",
+      "description": "Local review patch: bounded/cancellable WebSocket provisioning",
+      "sha256": "f7db74011cc4ca8e2f252def3704cc2b6506be53f340e85e77599bd78903ff8a"
+    },
+    {
+      "repository": "SideStore/SideSign",
+      "path": "Sources/Anisette/RemoteAnisetteDataProvider.swift",
+      "description": "Local review patch: bounded/cancellable WebSocket provisioning",
+      "sha256": "5798f5d32510e93fa9589c953e5dd0517b29963e03e93b003d32cd4f25f4efe7"
     }
-  ]
+  ],
+  "swiftpm_resolved_sha256": "92710a8c8d97cf6e241d6ebf1b72f5b77ea2eeaa5d7d29bfe4dcf9c659c2f2ee"
 }
