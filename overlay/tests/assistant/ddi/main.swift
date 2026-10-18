@@ -46,6 +46,15 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
         let cancelled = AssistantDDIAssets(manifest: manifest, root: root.appendingPathComponent("cancelled")) { _,_ in throw CancellationError() }
         do { _ = try await cancelled.prepare(method: .personalized) { _ in }; fatalError("Cancellation swallowed") }
         catch is CancellationError {}
+        let delayed = AssistantDDIAssets(manifest: manifest, root: root.appendingPathComponent("task-cancelled")) { url,_ in
+            try await Task.sleep(nanoseconds: 10_000_000_000)
+            return try await good(url, payload.count)
+        }
+        let task = Task { try await delayed.prepare(method: .personalized) { _ in } }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        task.cancel()
+        do { _ = try await task.value; fatalError("Task cancellation swallowed") }
+        catch is CancellationError {}
         // Verify the exact pinned public assets too when provided by CI.
         if let path = ProcessInfo.processInfo.environment["ASSISTANT_DDI_FIXTURES"] {
             for file in pinned.files {

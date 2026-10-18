@@ -18,7 +18,7 @@ func clean(_ message: String) {
     expect(assistant_test_live_count() == 0, message)
     expect(assistant_test_bad_free_order() == 0, "Borrowed remote server freed before its location client")
 }
-for (failure, expected) in [(Int32(1), Int32(2)), (2, 3), (3, 9), (4, 10), (5, 10), (6, 11), (8, 5), (10, 3), (11, 9)] {
+for (failure, expected) in [(Int32(1), Int32(2)), (2, 3), (3, 9), (4, 10), (5, 10), (6, 11), (8, 5), (10, 3), (11, 9), (27, 2), (28, 5)] {
     reset(failure)
     expect(AssistantNative.set(ip: "10.7.0.1", coordinate: point) == expected, "Fault must report the correct stage: \(failure)")
     clean("Failure path must release all handles: \(failure)")

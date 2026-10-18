@@ -132,7 +132,9 @@ struct AssistantDDIAssets {
             try Task.checkCancellation()
             progress("正在校验开发者映像 \(index + 1)/\(assets.count)…")
             let target = directory.appendingPathComponent(asset.name)
-            if (try? Self.verify(target, asset: asset)) == true { continue }
+            do { if try Self.verify(target, asset: asset) { continue } }
+            catch is CancellationError { throw CancellationError() }
+            catch { /* Unreadable/corrupt cache is replaced only after verification. */ }
             progress("正在下载开发者映像 \(index + 1)/\(assets.count)…")
             let (temporary, response) = try await download(URL(string: asset.url)!, asset.size)
             defer { try? FileManager.default.removeItem(at: temporary) }

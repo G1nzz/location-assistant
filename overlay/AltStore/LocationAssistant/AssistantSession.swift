@@ -86,9 +86,13 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         if code == 0 { return }
         guard code == 20 else { throw AssistantDDIError.native(code) }
         let assets = try AssistantDDIAssets.installed()
+        let ticket = generation
         let download = Task.detached(priority: .utility) {
             try await assets.prepare(method: method) { message in
-                Task { @MainActor in self.status = message }
+                Task { @MainActor in
+                    guard self.busy, self.generation == ticket, self.preparationTask != nil else { return }
+                    self.status = message
+                }
             }
         }
         let directory = try await withTaskCancellationHandler {
@@ -103,6 +107,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func prepareDeveloperServices() {
         guard beginMaintenance() else { return }
+        generation += 1
         let ip = deviceIP
         preparationTask = Task {
             defer { busy = false; preparationTask = nil }

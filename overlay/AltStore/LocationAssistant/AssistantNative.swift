@@ -68,6 +68,7 @@ private static func openTunnel(ip: String) -> Int32 {
     }
 
     var pairingHandle: OpaquePointer?
+    defer { if let pairingHandle { rp_pairing_file_free(pairingHandle) } }
     let data = Data(content.utf8)
     let pairingError = data.withUnsafeBytes { bytes in
         rp_pairing_file_from_bytes(bytes.bindMemory(to: UInt8.self).baseAddress, UInt(data.count), &pairingHandle)
@@ -80,8 +81,6 @@ private static func openTunnel(ip: String) -> Int32 {
     guard let pairingHandle else {
         return LocationSimulationStatus.pairingRead
     }
-
-    defer { rp_pairing_file_free(pairingHandle) }
 
     let providerError = withUnsafePointer(to: &address) { pointer in
         pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
@@ -112,13 +111,13 @@ private static func openTunnel(ip: String) -> Int32 {
     // successful updates so the next launch does not retry with obsolete keys.
     var pairingBytes: UnsafeMutablePointer<UInt8>?
     var pairingLength: UInt = 0
+    defer { if let pairingBytes { idevice_data_free(pairingBytes, pairingLength) } }
     if let error = rp_pairing_file_to_bytes(pairingHandle, &pairingBytes, &pairingLength) {
         idevice_error_free(error)
         LocationSimulationState.cleanup()
         return 5
     }
     guard let pairingBytes else { LocationSimulationState.cleanup(); return 5 }
-    defer { idevice_data_free(pairingBytes, pairingLength) }
     guard pairingLength > 0, pairingLength <= 2_000_000 else { LocationSimulationState.cleanup(); return 5 }
     do {
         let updated = try AssistantPairingPolicy.normalize(Data(bytes: pairingBytes, count: Int(pairingLength)))

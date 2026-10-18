@@ -11,6 +11,9 @@ def main():
     lock = json.loads((ROOT / "upstream-lock.json").read_text())
     assert lock["sidestore"]["commit"] == "6032424a0e56c1c319762e786099bdd9186a238b"
     assert lock["stikdebug"]["commit"] == "4bdfc92aa7cebd7a534f1e1ef56415f5727402de"
+    ddi = json.loads((ROOT / 'AltStore/LocationAssistant/AssistantDDIManifest.json').read_text())
+    assert ddi == lock['developer_disk_image'], 'Bundled DDI manifest differs from the pinned source'
+    assert len(ddi['files']) == 8 and all('/' + ddi['commit'] + '/' in x['url'] for x in ddi['files'])
     resolved = ROOT / "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
     assert hashlib.sha256(resolved.read_bytes()).hexdigest() == lock["swiftpm_resolved_sha256"], "Transitive dependency lock changed"
     library = ROOT / "Vendor/idevice/libidevice_ffi.a"

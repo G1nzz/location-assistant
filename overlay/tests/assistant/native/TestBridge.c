@@ -22,12 +22,13 @@ struct IdeviceFfiError *rp_pairing_file_from_bytes(const uint8_t *bytes, uintptr
     if (failure == 1) return make_error();
     struct RpPairingFileHandle *p = calloc(1, sizeof(*p));
     p->bytes = calloc(len + 1, 1); memcpy(p->bytes, bytes, len); p->len = len;
-    *out = p; live++; return NULL;
+    *out = p; live++; return failure == 27 ? make_error() : NULL;
 }
 void rp_pairing_file_free(struct RpPairingFileHandle *p) { if (p) { free(p->bytes); free(p); live--; } }
 struct IdeviceFfiError *rp_pairing_file_to_bytes(struct RpPairingFileHandle *p, uint8_t **out, uintptr_t *len) {
     if (failure == 8) return make_error();
     *out = calloc(p->len + 1, 1); memcpy(*out, p->bytes, p->len); *len = p->len; live++;
+    if (failure == 28) return make_error();
     if (failure == 9) { char *key = strstr((char *)*out, "host-one"); if (key) key[0] = 'x'; }
     return NULL;
 }
