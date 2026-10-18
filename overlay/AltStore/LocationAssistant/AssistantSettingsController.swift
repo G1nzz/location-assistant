@@ -114,7 +114,7 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
         case 11:
             if session.needsClear { show("请先清除模拟定位", "若清除时需要开发者映像，会自动准备；当前请先在定位页清除模拟。"); return }
             session.prepareDeveloperServices()
-            show("正在准备开发服务", "请保持 App 在前台。准备状态显示在定位页和续签页；首次缺少映像时需要联网下载约 17 MB。此操作不提交模拟位置，也不验证 Apple 登录。")
+            show("正在准备开发服务", "请保持 App 在前台。准备状态显示在定位页；首次缺少映像时需要联网下载约 17 MB。此操作不提交模拟位置，也不验证 Apple 登录。")
         default: break
         }
     }
