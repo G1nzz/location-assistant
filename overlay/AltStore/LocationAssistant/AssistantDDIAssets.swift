@@ -106,7 +106,11 @@ struct AssistantDDIAssets {
         configuration.urlCache = nil
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
-        return try await session.download(from: url, delegate: AssistantDDIDownloadLimit(limit: limit))
+        let (temporary, response) = try await session.download(from: url, delegate: AssistantDDIDownloadLimit(limit: limit))
+        // Own the file before invalidating the temporary download session.
+        let owned = FileManager.default.temporaryDirectory.appendingPathComponent("assistant-ddi-" + UUID().uuidString)
+        try FileManager.default.moveItem(at: temporary, to: owned)
+        return (owned, response)
     }
 
     static func verify(_ url: URL, asset: AssistantDDIManifest.Asset) throws -> Bool {

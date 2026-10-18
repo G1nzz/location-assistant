@@ -61,6 +61,46 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
                 expect(try AssistantDDIAssets.verify(URL(fileURLWithPath: path).appendingPathComponent(file.method.rawValue+"/"+file.name), asset: file), "Pinned real asset digest")
             }
         }
+        // Exercise the real URLSession path against a loopback fixture, with no
+        // Apple account or external network dependency. Check file ownership
+        // after the session is invalidated, and prove redirects are not followed.
+        let server = Process()
+        server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        server.arguments = ["-u", "-c", """
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/redirect':
+                    self.send_response(302)
+                    self.send_header('Location', '/unexpected')
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.send_header('Content-Length', '7')
+                    self.end_headers()
+                    self.wfile.write(b'ddi-ok!')
+            def log_message(self, *args): pass
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        print(server.server_port, flush=True)
+        server.serve_forever()
+        """]
+        let pipe = Pipe()
+        server.standardOutput = pipe
+        try server.run()
+        defer { server.terminate(); server.waitUntilExit() }
+        var line = Data()
+        while let byte = try pipe.fileHandleForReading.read(upToCount: 1), !byte.isEmpty {
+            if byte == Data([10]) { break }; line.append(byte)
+        }
+        let port = Int(String(decoding: line, as: UTF8.self))!
+        let (downloaded, response) = try await AssistantDDIAssets.downloadAsset(URL(string: "http://127.0.0.1:\(port)/ok")!, 7)
+        defer { try? FileManager.default.removeItem(at: downloaded) }
+        expect((response as? HTTPURLResponse)?.statusCode == 200, "Real URLSession response")
+        expect(try Data(contentsOf: downloaded) == Data("ddi-ok!".utf8), "Downloaded file survives session invalidation")
+        let (redirected, redirectResponse) = try await AssistantDDIAssets.downloadAsset(URL(string: "http://127.0.0.1:\(port)/redirect")!, 100)
+        defer { try? FileManager.default.removeItem(at: redirected) }
+        expect((redirectResponse as? HTTPURLResponse)?.statusCode == 302, "Redirect must not be followed")
         print("DDI version dispatch, pinned manifests, disk cache, integrity, HTTP failure and cancellation tests passed")
+        print("Real URLSession disk-download lifetime and redirect refusal tests passed")
     }
 }
