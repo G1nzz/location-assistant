@@ -38,7 +38,7 @@ final class AssistantSigningCoordinator: ObservableObject {
     private func prepareRuntime() async throws {
         status = "正在准备本设备续签记录…"
         try await DatabaseManager.shared.start()
-        guard let pairing = PairingFileManager.shared.fetchPairingFile() else { throw OperationError.invalidPairingFile }
+        guard let pairing = PairingFileManager.shared.fetchPairingFile() else { throw OperationError.invalidPairingFile() }
         _ = try PairingFileParser.parse(content: pairing)
         if !runtimeStarted {
             status = "正在连接本设备续签服务…"
