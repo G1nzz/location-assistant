@@ -53,8 +53,8 @@ static func preflight(ip: String) -> Int32 {
     return 0
 }
 
-static func connect(ip: String) -> Int32 {
-    if LocationSimulationState.locationSimulation != nil { return 0 }
+private static func openTunnel(ip: String) -> Int32 {
+    if LocationSimulationState.adapter != nil, LocationSimulationState.handshake != nil { return 0 }
     let check = preflight(ip: ip)
     guard check == 0 else { return check }
     guard let content = PairingFileManager.shared.fetchPairingFile() else { return 2 }
@@ -128,6 +128,15 @@ static func connect(ip: String) -> Int32 {
         }
     } catch { LocationSimulationState.cleanup(); return 5 }
 
+    return 0
+}
+
+static func connect(ip: String) -> Int32 {
+    if LocationSimulationState.locationSimulation != nil { return 0 }
+    let tunnel = openTunnel(ip: ip)
+    guard tunnel == 0 else { return tunnel }
+    let ready = queryDDI(method: .current)
+    guard ready == 0 else { LocationSimulationState.cleanup(); return ready }
     let remoteServerError = remote_server_connect_rsd(
         LocationSimulationState.adapter,
         LocationSimulationState.handshake,
@@ -198,6 +207,106 @@ static func check(ip: String) -> Int32 {
     let code = connect(ip: ip)
     LocationSimulationState.cleanup()
     return code
+}
+
+// Preparation uses the same tunnel/serial queue as location. It never starts
+// minimuxer or reads an Apple account. Readiness is queried, not cached in UI.
+static func ddiStatus(ip: String, method: AssistantDDIMethod) -> Int32 {
+    LocationSimulationState.cleanup()
+    defer { LocationSimulationState.cleanup() }
+    let code = openTunnel(ip: ip)
+    return code == 0 ? queryDDI(method: method) : code
+}
+
+private static func queryDDI(method: AssistantDDIMethod) -> Int32 {
+    guard let adapter = LocationSimulationState.adapter, let handshake = LocationSimulationState.handshake else { return 3 }
+    if method == .cryptex {
+        var installed: UnsafeMutablePointer<InstalledCryptexC>?
+        let error = cryptexd_installed_ddi(adapter, handshake, &installed)
+        defer { cryptexd_free_installed_cryptex(installed) }
+        if let error { idevice_error_free(error); return 21 }
+        return installed == nil ? 20 : 0
+    }
+    var client: OpaquePointer?
+    defer { if let client { image_mounter_free(client) } }
+    if let error = image_mounter_connect_rsd(adapter, handshake, &client) {
+        idevice_error_free(error); return 21
+    }
+    guard let client else { return 21 }
+    var enabled: Int32 = 0
+    if let error = image_mounter_query_developer_mode_status(client, &enabled) {
+        idevice_error_free(error); return 21
+    }
+    guard enabled != 0 else { return 22 }
+    var signature: UnsafeMutablePointer<UInt8>?
+    var length = 0
+    let error = image_mounter_lookup_image(client, "Personalized", &signature, &length)
+    defer { if let signature { idevice_data_free(signature, UInt(length)) } }
+    if let error {
+        // Pinned idevice maps NotFound to 20. Transport/protocol errors are
+        // unknown readiness, never evidence that an image needs installing.
+        let code = error.pointee.code
+        idevice_error_free(error)
+        return code == 20 ? 20 : 21
+    }
+    return signature != nil && length > 0 ? 0 : 20
+}
+
+static func mountDDI(ip: String, method: AssistantDDIMethod, directory: URL) -> Int32 {
+    LocationSimulationState.cleanup()
+    defer { LocationSimulationState.cleanup() }
+    let code = openTunnel(ip: ip)
+    guard code == 0 else { return code }
+    let state = queryDDI(method: method)
+    if state == 0 { return 0 }
+    guard state == 20 else { return state }
+    guard let adapter = LocationSimulationState.adapter, let handshake = LocationSimulationState.handshake else { return 3 }
+    if method == .cryptex {
+        var assets: OpaquePointer?
+        defer { if let assets { cryptex1_assets_free(assets) } }
+        if let error = cryptex1_assets_load(directory.path, &assets) { idevice_error_free(error); return 25 }
+        guard let assets else { return 25 }
+        if let error = cryptexd_install_ddi(adapter, handshake, assets, nil) { idevice_error_free(error); return 23 }
+    } else {
+        let result = mountPersonalized(adapter: adapter, handshake: handshake, directory: directory)
+        guard result == 0 else { return result }
+    }
+    // A successful command is insufficient: demand a fresh mounted response.
+    return queryDDI(method: method) == 0 ? 0 : 24
+}
+
+private static func mountPersonalized(adapter: OpaquePointer, handshake: OpaquePointer, directory: URL) -> Int32 {
+    guard let image = try? Data(contentsOf: directory.appendingPathComponent("Image.dmg"), options: .mappedIfSafe),
+          let trust = try? Data(contentsOf: directory.appendingPathComponent("Image.dmg.trustcache"), options: .mappedIfSafe),
+          let manifest = try? Data(contentsOf: directory.appendingPathComponent("BuildManifest.plist"), options: .mappedIfSafe),
+          !image.isEmpty, !trust.isEmpty, !manifest.isEmpty else { return 25 }
+    var lockdown: OpaquePointer?
+    defer { if let lockdown { lockdownd_client_free(lockdown) } }
+    if let error = lockdownd_connect_rsd(adapter, handshake, &lockdown) { idevice_error_free(error); return 23 }
+    guard let lockdown else { return 23 }
+    var chipPlist: plist_t?
+    defer { if let chipPlist { plist_free(chipPlist) } }
+    if let error = lockdownd_get_value(lockdown, "UniqueChipID", nil, &chipPlist) { idevice_error_free(error); return 23 }
+    guard let chipPlist else { return 23 }
+    var chip: UInt64 = 0
+    plist_get_uint_val(chipPlist, &chip)
+    guard chip != 0 else { return 23 }
+    var client: OpaquePointer?
+    defer { if let client { image_mounter_free(client) } }
+    if let error = image_mounter_connect_rsd(adapter, handshake, &client) { idevice_error_free(error); return 23 }
+    guard let client else { return 23 }
+    let error = image.withUnsafeBytes { imageBytes in
+        trust.withUnsafeBytes { trustBytes in
+            manifest.withUnsafeBytes { manifestBytes in
+                image_mounter_mount_personalized_rsd(client, adapter, handshake,
+                    imageBytes.bindMemory(to: UInt8.self).baseAddress, image.count,
+                    trustBytes.bindMemory(to: UInt8.self).baseAddress, trust.count,
+                    manifestBytes.bindMemory(to: UInt8.self).baseAddress, manifest.count, nil, chip)
+            }
+        }
+    }
+    if let error { idevice_error_free(error); return 23 }
+    return 0
 }
 
 static func disconnect() { LocationSimulationState.cleanup() }

@@ -14,3 +14,7 @@
 公开仓库以固定版本下载脚本和修改覆盖文件组成，构建时还原完整源码。账号、真实 UDID、配对文件、位置收藏和开发者证书不属于公开源码。
 
 0.2.1 对固定 SideSign 增加本地 WebSocket 截止与取消补丁，文件和摘要列入 upstream-lock.json；原始版权和 AGPL 声明保留。
+
+## 0.2.2 DDI preparation
+
+The DDI selection and mounting integration is adapted from pinned StikDebug 3.1.13 (AGPL-3.0); original author notices remain above. Public Apple developer images are downloaded on-device from doronz88/DeveloperDiskImage commit 6eae353ae694bda1c421d4a3eee5459ae59c99a1. Exact files, sizes and SHA-256 values are recorded in upstream-lock.json. No DDI binaries or private pairing/account data are included in this repository or IPA.

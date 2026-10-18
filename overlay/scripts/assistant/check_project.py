@@ -22,7 +22,7 @@ def main():
     assert plist["CFBundleDisplayName"] == "定位助手"
     assert "CFBundleDocumentTypes" not in plist
     assert "BASE_BUNDLE_ID = com.locationassistant.personal" in (ROOT / "Build.xcconfig").read_text()
-    assert "MARKETING_VERSION = 0.2.1" in (ROOT / "Build.xcconfig").read_text()
+    assert "MARKETING_VERSION = 0.2.2" in (ROOT / "Build.xcconfig").read_text()
     launch = (ROOT / "AltStore/LaunchViewController.swift").read_text()
     assert "updateAllSources" not in launch and "DatabaseManager.shared.start" not in launch
     assert "signIn(" not in launch and "SideJITManager" not in launch

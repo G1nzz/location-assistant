@@ -29,7 +29,9 @@ def main():
     assert 'if !self.skipDeviceRegistration' in cached and 'registerCurrentDevice' in cached
     session = read('AltStore/LocationAssistant/AssistantSession.swift')
     start = body(session, 'func start(_ coordinate:')
-    assert start.index('guard preflight == 0') < start.index('self.setNeedsClear(true)') < start.index('AssistantNative.set(')
+    assert start.index('try await prepareDeveloperServices(ip: ip)') < start.index('setNeedsClear(true)') < start.index('AssistantNative.set(')
+    assert 'Task.detached(priority: .utility)' in session
+    assert 'preparationTask?.cancel()' in session
     assert 'recordNativeFailure(stage: "清除模拟"' in session
     assert 'pausesLocationUpdatesAutomatically = false' in session
     assert 'locationManagerDidPauseLocationUpdates' in session

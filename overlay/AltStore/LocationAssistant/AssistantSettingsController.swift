@@ -15,10 +15,10 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
         title = "设置"
         session.$busy.sink { [weak self] _ in self?.tableView.reloadData() }.store(in: &observations)
     }
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 11 }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 12 }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        cell.textLabel?.text = ["导入本设备配对文件", "设备 IP", "检查定位连接", "安装与恢复指南", "脱敏诊断信息", "开源项目与许可证", "重启后确认真实位置已恢复", "导入续签证书", "登录服务", "检查登录服务", "重建登录认证缓存"][indexPath.row]
+        cell.textLabel?.text = ["导入本设备配对文件", "设备 IP", "检查定位连接", "安装与恢复指南", "脱敏诊断信息", "开源项目与许可证", "重启后确认真实位置已恢复", "导入续签证书", "登录服务", "检查登录服务", "重建登录认证缓存", "准备定位开发服务"][indexPath.row]
         if indexPath.row == 1 { cell.detailTextLabel?.text = session.deviceIP }
         if indexPath.row == 8 { cell.detailTextLabel?.text = AssistantLoginPolicy.serviceLabel }
         cell.textLabel?.textColor = session.busy || importing ? .secondaryLabel : .label
@@ -52,7 +52,7 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
             if session.needsClear { show("请先清除模拟定位", "检查会建立新的连接，请先清除当前模拟。"); return }
             session.checkConnection { [weak self] message in self?.show("定位连接检查", message) }
         case 3:
-            show("安装与恢复指南", "首次：电脑签名安装 → 开启开发者模式 → 导入本设备配对文件 → 连接 Wi-Fi 和 LocalDevVPN。\n\n使用：选点 → 开始模拟 → 在地图 App 验证当前位置。\n\n结束：保持 VPN 连接 → 清除模拟定位 → 地图重新定位 → 再关闭 VPN。清除失败可重试；仍失败则关闭 VPN、重启设备，先验证真实位置。\n\n续签：在到期前手动刷新。每台设备分别签名和配对。")
+            show("安装与恢复指南", "首次：电脑签名安装 → 开启开发者模式 → 导入本设备配对文件 → 连接 Wi-Fi 和 LocalDevVPN。\n\n使用：选点 → 开始模拟（自动检查及准备开发者映像） → 在地图 App 验证当前位置。\n\n结束：保持 VPN 连接 → 清除模拟定位 → 地图重新定位 → 再关闭 VPN。清除失败可重试；仍失败则关闭 VPN、重启设备，先验证真实位置。\n\n续签：在到期前手动刷新。每台设备分别签名和配对。")
         case 4:
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
             show("脱敏诊断", "App：\(version)\n系统：\(UIDevice.current.systemVersion)\n设备类型：\(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone")\n操作进行中：\(session.busy ? "是" : "否")\n可能遗留模拟：\(session.needsClear ? "是" : "否")\n\n最近失败：\n\(session.lastDiagnostic)\n\n不包含账号、UDID、配对内容、IP 或位置收藏。")
@@ -111,6 +111,10 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
                     show("登录服务未就绪", AssistantSession.safeError(error))
                 }
             }
+        case 11:
+            if session.needsClear { show("请先清除模拟定位", "若清除时需要开发者映像，会自动准备；当前请先在定位页清除模拟。"); return }
+            session.prepareDeveloperServices()
+            show("正在准备开发服务", "请保持 App 在前台。准备状态显示在定位页和续签页；首次缺少映像时需要联网下载约 17 MB。此操作不提交模拟位置，也不验证 Apple 登录。")
         default: break
         }
     }

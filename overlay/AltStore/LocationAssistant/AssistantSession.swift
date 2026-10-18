@@ -15,6 +15,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
     private var keepAliveTicket: AssistantCommandTicket?
     private var generation = 0
     private let workQueue = DispatchQueue(label: "locationassistant.commands", qos: .userInitiated)
+    private var preparationTask: Task<Void, Never>?
     private let persistenceKey = "assistant.needsClear"
 
     private override init() {
@@ -30,6 +31,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         // explicitly stopped on clear/failure and only run during simulation.
         locationManager.pausesLocationUpdatesAutomatically = false
         if needsClear { status = "上次模拟可能仍有效，请先清除模拟定位" }
+        NotificationCenter.default.addObserver(self, selector: #selector(enteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(becameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
@@ -70,44 +72,97 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         }
     }
 
+    private func native(_ operation: @escaping () -> Int32) async -> Int32 {
+        await withCheckedContinuation { continuation in
+            workQueue.async { continuation.resume(returning: operation()) }
+        }
+    }
+
+    private func prepareDeveloperServices(ip: String) async throws {
+        let method = AssistantDDIMethod.current
+        status = "正在检查本设备开发服务…"
+        let code = await native { AssistantNative.ddiStatus(ip: ip, method: method) }
+        try Task.checkCancellation()
+        if code == 0 { return }
+        guard code == 20 else { throw AssistantDDIError.native(code) }
+        let assets = try AssistantDDIAssets.installed()
+        let download = Task.detached(priority: .utility) {
+            try await assets.prepare(method: method) { message in
+                Task { @MainActor in self.status = message }
+            }
+        }
+        let directory = try await withTaskCancellationHandler {
+            try await download.value
+        } onCancel: { download.cancel() }
+        try Task.checkCancellation()
+        status = "正在挂载开发者映像，请保持 App 在前台…"
+        let result = await native { AssistantNative.mountDDI(ip: ip, method: method, directory: directory) }
+        try Task.checkCancellation()
+        guard result == 0 else { throw AssistantDDIError.native(result) }
+    }
+
+    func prepareDeveloperServices() {
+        guard beginMaintenance() else { return }
+        let ip = deviceIP
+        preparationTask = Task {
+            defer { busy = false; preparationTask = nil }
+            do {
+                try await prepareDeveloperServices(ip: ip)
+                status = "开发者映像已确认挂载；尚未模拟定位，也尚未验证续签"
+            } catch { preparationFailed(error) }
+        }
+    }
+
+    private func preparationFailed(_ error: Error) {
+        activeCoordinate = nil
+        locationManager.stopUpdatingLocation()
+        let message: String
+        if error is CancellationError { message = "准备已取消，请保持 App 在前台后重试" }
+        else if let ddi = error as? AssistantDDIError {
+            if case .native(let code) = ddi, code < 20 { message = Self.failure(code) }
+            else { message = ddi.localizedDescription }
+        } else { message = "开发者映像准备失败，请检查网络及设备空间后重试；不需要重新登录签名账号" }
+        status = message + (needsClear ? "；原模拟可能仍有效，结束时仍需清除。" : "")
+        UserDefaults.standard.set("阶段：开发者服务准备\n" + status, forKey: "assistant.lastFailure")
+    }
+
+    @objc private func enteredBackground() {
+        // Downloads are cancellable. A synchronous FFI mount cannot be safely
+        // interrupted; after it returns cancellation prevents submitting a point.
+        preparationTask?.cancel()
+    }
+
     func start(_ coordinate: CLLocationCoordinate2D) {
         guard !busy, AssistantCoordinate.valid(coordinate) else { return }
         busy = true
-        status = "正在连接并提交位置…"
         generation += 1
         stopKeepAlive()
         let ip = deviceIP
-        workQueue.async {
-            let preflight = AssistantNative.preflight(ip: ip)
-            DispatchQueue.main.async {
-                guard preflight == 0 else {
-                    self.busy = false
-                    self.activeCoordinate = nil
-                    self.locationManager.stopUpdatingLocation()
-                    self.status = Self.failure(preflight)
-                    self.recordNativeFailure(stage: "定位前检查", code: preflight)
-                    return
+        preparationTask = Task {
+            defer { busy = false; preparationTask = nil }
+            do {
+                try await prepareDeveloperServices(ip: ip)
+                let connected = await native { AssistantNative.connect(ip: ip) }
+                try Task.checkCancellation()
+                guard connected == 0 else { throw AssistantDDIError.native(connected) }
+                // DDI/connection failures must not create a simulated-position
+                // intent. Persist only immediately before a position command.
+                setNeedsClear(true)
+                let result = await native { AssistantNative.set(ip: ip, coordinate: coordinate) }
+                if result == 0 {
+                    activeCoordinate = coordinate
+                    status = "模拟位置已提交，可切换到地图 App 验证"
+                    startBackgroundSupport()
+                    startKeepAlive(coordinate)
+                } else {
+                    status = Self.failure(result)
+                    recordNativeFailure(stage: "开始模拟", code: result)
+                    activeCoordinate = nil
+                    locationManager.stopUpdatingLocation()
                 }
-                // Only a command that can reach the device creates an unknown
-                // state. Persist intent before sending, never after the reply.
-                self.setNeedsClear(true)
-                self.workQueue.async {
-                    let result = AssistantNative.set(ip: ip, coordinate: coordinate)
-                    DispatchQueue.main.async {
-                        self.busy = false
-                        if result == 0 {
-                            self.activeCoordinate = coordinate
-                            self.status = "模拟位置已提交，可切换到地图 App 验证"
-                            self.startBackgroundSupport()
-                            self.startKeepAlive(coordinate)
-                        } else {
-                            self.status = Self.failure(result)
-                            self.recordNativeFailure(stage: "开始模拟", code: result)
-                            self.activeCoordinate = nil
-                            self.locationManager.stopUpdatingLocation()
-                        }
-                    }
-                }
+            } catch {
+                _ = await native { AssistantNative.disconnect(); return 0 }
+                preparationFailed(error)
             }
         }
     }
@@ -118,22 +173,31 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         generation += 1
         stopKeepAlive()
         locationManager.stopUpdatingLocation()
-        status = "正在清除系统模拟定位…"
         let ip = deviceIP
-        workQueue.async {
-            let result = AssistantNative.clear(ip: ip)
-            DispatchQueue.main.async {
-                self.busy = false
-                self.activeCoordinate = nil
+        preparationTask = Task {
+            defer { preparationTask = nil }
+            do {
+                try await prepareDeveloperServices(ip: ip)
+                try Task.checkCancellation()
+                status = "正在清除系统模拟定位…"
+                let result = await native { AssistantNative.clear(ip: ip) }
+                activeCoordinate = nil
                 if result == 0 {
-                    self.setNeedsClear(false)
-                    self.status = "清除请求成功，请在地图中重新获取当前位置"
+                    setNeedsClear(false)
+                    status = "清除请求成功，请在地图中重新获取当前位置"
                 } else {
-                    self.setNeedsClear(true)
-                    self.recordNativeFailure(stage: "清除模拟", code: result)
-                    self.status = "清除失败（\(result)）。保持 LocalDevVPN 连接后重试；仍失败请关闭 VPN、重启设备，暂勿重新开启模拟。"
+                    setNeedsClear(true)
+                    recordNativeFailure(stage: "清除模拟", code: result)
+                    status = "清除失败（\(result)）。保持 LocalDevVPN 连接后重试；仍失败请关闭 VPN、重启设备，暂勿重新开启模拟。"
                 }
+                // Release busy before callback: refresh may acquire it here.
+                busy = false
                 completion?(result == 0)
+            } catch {
+                _ = await native { AssistantNative.disconnect(); return 0 }
+                preparationFailed(error)
+                busy = false
+                completion?(false)
             }
         }
     }
@@ -245,6 +309,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         case 3: return "设备连接失败，请检查 Wi-Fi、LocalDevVPN 和配对文件"
         case 4: return "当前是传统配对文件：可供续签使用，但定位模块需要本设备的远程配对文件。"
         case 5: return "远程配对更新无法保存，已停止提交新位置。请检查设备空间与配对文件，再重试或清除模拟。"
+        case 20...25: return AssistantDDIStatus.message(code)
         case 9, 10: return "定位服务连接失败（\(code)），请检查开发者模式及系统兼容性"
         default: return "定位命令失败（\(code)）；模拟状态未知，请尝试清除"
         }
@@ -261,6 +326,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     static func safeError(_ error: Error) -> String {
+        if let ddi = error as? AssistantDDIError { return ddi.localizedDescription }
         if let pairingError = error as? AssistantPairingError { return pairingError.localizedDescription }
         if let certificateError = error as? AssistantCertificateError { return certificateError.localizedDescription }
         if let loginError = error as? AssistantLoginError { return loginError.localizedDescription }

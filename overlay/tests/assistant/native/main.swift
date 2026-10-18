@@ -48,3 +48,43 @@ expect(AssistantNative.set(ip: "10.7.0.1", coordinate: point) == 5, "Unsaveable 
 expect(assistant_test_set_calls() == 0, "Do not send a new position if updated pairing cannot persist")
 clean("Pairing save failure cleanup")
 print("Native fault injection, nil-client rejection, pairing persistence and 100-cycle resource lifetime tests passed")
+
+let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/native-ddi")
+try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+for name in ["Image.dmg", "Image.dmg.trustcache", "BuildManifest.plist"] {
+    try Data([1,2,3]).write(to: directory.appendingPathComponent(name))
+}
+for method in [AssistantDDIMethod.personalized, .cryptex] {
+    reset(0)
+    expect(AssistantNative.ddiStatus(ip: "10.7.0.1", method: method) == 0, "Mounted image")
+    clean("Readiness inspection must release all handles")
+    assistant_test_set_mounted(0)
+    expect(AssistantNative.ddiStatus(ip: "10.7.0.1", method: method) == 20, "Missing image is distinct from unreachable")
+    clean("Missing image inspection cleanup")
+    expect(AssistantNative.mountDDI(ip: "10.7.0.1", method: method, directory: directory) == 0, "Mount with post-query")
+    expect(assistant_test_mount_calls() == 1, "Mount once")
+    clean("Mount cleanup")
+    expect(AssistantNative.mountDDI(ip: "10.7.0.1", method: method, directory: directory) == 0, "Already mounted")
+    expect(assistant_test_mount_calls() == 1, "Already mounted does not install again")
+    clean("Already-mounted cleanup")
+    reset(22); assistant_test_set_mounted(0)
+    expect(AssistantNative.mountDDI(ip: "10.7.0.1", method: method, directory: directory) == 24, "Successful command without mounted status is failure")
+    clean("Post-mount verification failure cleanup")
+}
+for (failure, code) in [(Int32(12), Int32(21)), (13,21), (14,21), (15,22), (16,21), (17,23), (18,23), (19,23), (20,23), (21,23)] {
+    reset(failure); assistant_test_set_mounted(0)
+    expect(AssistantNative.mountDDI(ip: "10.7.0.1", method: .personalized, directory: directory) == code, "Personalized fault \(failure)")
+    expect(assistant_test_set_calls() == 0, "Preparation must not send coordinates")
+    clean("Personalized fault cleanup \(failure)")
+}
+for (failure, code) in [(Int32(23), Int32(21)), (24,25), (25,25), (26,23)] {
+    reset(failure); assistant_test_set_mounted(0)
+    expect(AssistantNative.mountDDI(ip: "10.7.0.1", method: .cryptex, directory: directory) == code, "Cryptex fault \(failure)")
+    expect(assistant_test_set_calls() == 0, "Cryptex preparation must not send coordinates")
+    clean("Cryptex fault cleanup \(failure)")
+}
+reset(0); assistant_test_set_mounted(0)
+expect(AssistantNative.set(ip: "10.7.0.1", coordinate: point) == 20, "Never submit if DDI missing")
+expect(assistant_test_set_calls() == 0, "Missing DDI blocks position commands")
+clean("No DDI set cleanup")
+print("Personalized/Cryptex DDI readiness, mount, recheck and fault resource tests passed")
