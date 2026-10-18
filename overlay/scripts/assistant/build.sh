@@ -16,6 +16,9 @@ xcrun swiftc AltStore/LocationAssistant/AssistantHealthPolicy.swift tests/assist
 .build/health-tests
 xcrun swiftc -parse-as-library AltStore/LocationAssistant/AssistantPairingPolicy.swift AltStore/LocationAssistant/AssistantFavoriteStore.swift AltStore/LocationAssistant/AssistantHealthPolicy.swift Dependencies/SideSign/Sources/Anisette/AnisetteSocketDeadline.swift SideStore/DeepLinks/URLHandler.swift tests/assistant/review/main.swift -o .build/review-tests
 .build/review-tests
+xcrun clang -c tests/assistant/native/TestBridge.c -o .build/native-bridge.o
+xcrun swiftc -I tests/assistant/native AltStore/LocationAssistant/AssistantPairingPolicy.swift AltStore/LocationAssistant/AssistantHealthPolicy.swift AltStore/LocationAssistant/AssistantCoordinate.swift AltStore/LocationAssistant/AssistantNative.swift tests/assistant/native/PairingStub.swift tests/assistant/native/main.swift .build/native-bridge.o -o .build/native-tests
+.build/native-tests
 xcodebuild -quiet archive -project AltStore.xcodeproj -scheme SideStore -sdk iphoneos \
   -configuration Release -destination 'generic/platform=iOS' \
   -disableAutomaticPackageResolution -onlyUsePackageVersionsFromResolvedFile \

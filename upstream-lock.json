@@ -39,7 +39,7 @@
       "repository": "SideStore/SideSign",
       "path": "Sources/Anisette/RemoteAnisetteDataProvider.swift",
       "description": "Local review patch: bounded/cancellable WebSocket provisioning",
-      "sha256": "5798f5d32510e93fa9589c953e5dd0517b29963e03e93b003d32cd4f25f4efe7"
+      "sha256": "9d53a88676d5d3adea2e0a40208e0bb6b35401ca249471bbb9a79837f30dd313"
     }
   ],
   "swiftpm_resolved_sha256": "92710a8c8d97cf6e241d6ebf1b72f5b77ea2eeaa5d7d29bfe4dcf9c659c2f2ee"

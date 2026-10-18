@@ -58,22 +58,6 @@ static func connect(ip: String) -> Int32 {
     let check = preflight(ip: ip)
     guard check == 0 else { return check }
     guard let content = PairingFileManager.shared.fetchPairingFile() else { return 2 }
-    let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("AssistantPairing", isDirectory: true)
-    let file = directory.appendingPathComponent("pairing.plist")
-    do {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        var protected = file
-        if (try? String(contentsOf: file, encoding: .utf8)) != content {
-            try content.write(to: file, atomically: true, encoding: .utf8)
-        }
-        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication,
-                                               .posixPermissions: 0o600], ofItemAtPath: file.path)
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try protected.setResourceValues(values)
-    } catch { return 2 }
-    let pairingPath = file.path
     var address = sockaddr_in()
     address.sin_family = sa_family_t(AF_INET)
     address.sin_port = in_port_t(49152).bigEndian
@@ -84,7 +68,10 @@ static func connect(ip: String) -> Int32 {
     }
 
     var pairingHandle: OpaquePointer?
-    let pairingError = pairingPath.withCString { rp_pairing_file_read($0, &pairingHandle) }
+    let data = Data(content.utf8)
+    let pairingError = data.withUnsafeBytes { bytes in
+        rp_pairing_file_from_bytes(bytes.bindMemory(to: UInt8.self).baseAddress, UInt(data.count), &pairingHandle)
+    }
     if let pairingError {
         idevice_error_free(pairingError)
         return LocationSimulationStatus.pairingRead
@@ -116,6 +103,10 @@ static func connect(ip: String) -> Int32 {
         LocationSimulationState.cleanup()
         return LocationSimulationStatus.providerCreate
     }
+    guard LocationSimulationState.adapter != nil, LocationSimulationState.handshake != nil else {
+        LocationSimulationState.cleanup()
+        return LocationSimulationStatus.providerCreate
+    }
 
     // The FFI may update remote pairing during tunnel establishment. Persist
     // successful updates so the next launch does not retry with obsolete keys.
@@ -128,6 +119,7 @@ static func connect(ip: String) -> Int32 {
     }
     guard let pairingBytes else { LocationSimulationState.cleanup(); return 5 }
     defer { idevice_data_free(pairingBytes, pairingLength) }
+    guard pairingLength > 0, pairingLength <= 2_000_000 else { LocationSimulationState.cleanup(); return 5 }
     do {
         let updated = try AssistantPairingPolicy.normalize(Data(bytes: pairingBytes, count: Int(pairingLength)))
         let previous = try AssistantPairingPolicy.normalize(Data(content.utf8))
@@ -146,6 +138,10 @@ static func connect(ip: String) -> Int32 {
         LocationSimulationState.cleanup()
         return LocationSimulationStatus.remoteServer
     }
+    guard LocationSimulationState.remoteServer != nil else {
+        LocationSimulationState.cleanup()
+        return LocationSimulationStatus.remoteServer
+    }
 
     let locationSimulationError = location_simulation_new(
         LocationSimulationState.remoteServer,
@@ -157,7 +153,8 @@ static func connect(ip: String) -> Int32 {
         return LocationSimulationStatus.locationSimulation
     }
 
-    LocationSimulationState.remoteServer = nil
+    // location_simulation_new borrows the remote server. Keep its owner alive
+    // until cleanup frees the location client first and the server second.
     guard LocationSimulationState.locationSimulation != nil else {
         LocationSimulationState.cleanup()
         return LocationSimulationStatus.locationSimulation

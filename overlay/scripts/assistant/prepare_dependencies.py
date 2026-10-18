@@ -34,7 +34,7 @@ def main():
     for patch in lock.get("patches", []):
         source_file = ROOT / "patches/SideSign" / patch["path"]
         if hashlib.sha256(source_file.read_bytes()).hexdigest() != patch["sha256"]:
-            raise RuntimeError("Authentication patch checksum mismatch")
+            raise RuntimeError(f"Pinned patch checksum mismatch: {patch['path']}")
         shutil.copyfile(source_file, ROOT / "Dependencies/SideSign" / patch["path"])
     vendor = ROOT / "Vendor/idevice"
     library = vendor / "libidevice_ffi.a"
