@@ -31,6 +31,9 @@ def main():
     start = body(session, 'func start(_ coordinate:')
     assert start.index('guard preflight == 0') < start.index('self.setNeedsClear(true)') < start.index('AssistantNative.set(')
     assert 'recordNativeFailure(stage: "清除模拟"' in session
+    settings = read('AltStore/LocationAssistant/AssistantSettingsController.swift')
+    service_check = settings[settings.index('case 9, 10:'):settings.index('default: break')]
+    assert 'guard AssistantLoginPolicy.usesCompatibleService' in service_check
     search = read('AltStore/LocationAssistant/AssistantLocationController.swift')
     assert 'selectedLabel.text = "搜索失败' not in search and 'selectedLabel.text = "未找到' not in search
     build = read('scripts/assistant/build.sh')

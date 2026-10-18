@@ -91,6 +91,11 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
             alert.addAction(UIAlertAction(title: "取消", style: .cancel))
             present(alert, animated: true)
         case 9, 10:
+            guard AssistantLoginPolicy.usesCompatibleService else {
+                show("当前使用原有配置", "内置服务检查与缓存重建只适用于内置登录服务。请先在登录服务中选择自动选择或指定服务，再执行本项检查。")
+                return
+            }
+            if session.needsClear { show("请先清除模拟定位", "清除模拟后再检查或重建登录服务缓存。"); return }
             guard session.beginMaintenance() else { return }
             Task {
                 do {

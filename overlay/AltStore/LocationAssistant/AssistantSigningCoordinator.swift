@@ -56,7 +56,7 @@ final class AssistantSigningCoordinator: ObservableObject {
         status = "正在连接本设备续签服务…"
         // A changed pairing file/IP or a prior failed connection must not reuse a
         // cached `started` flag. Stop the old proxy and initialize current inputs.
-        await minimuxer.core.stop()
+        try await minimuxer.core.stop()
         try await AppBootManager.shared.startMinimuxer(pairingFile: pairing)
     }
 

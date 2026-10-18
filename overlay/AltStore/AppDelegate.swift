@@ -533,6 +533,9 @@ private extension AppDelegate {
         }
     }
     
+}
+
+extension AppDelegate {
     nonisolated static func reconcileSelfReinstallationIfNeeded() {
         guard let appGroup = Bundle.main.altstoreAppGroup,
               let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
