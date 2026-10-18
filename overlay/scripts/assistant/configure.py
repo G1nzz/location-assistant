@@ -3,10 +3,22 @@ from pathlib import Path
 import json
 import plistlib
 import re
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 
 def main():
+    # Do not instantiate upstream store pages before the signing database is ready.
+    # The assistant's three native tabs are installed by TabBarController.viewDidLoad.
+    storyboard = ROOT / "AltStore/iOS/Main.storyboard"
+    source = storyboard.read_text(encoding="utf-8")
+    pattern = r'(<tabBarController\b[^>]*storyboardIdentifier="tabBarController"[^>]*>)(.*?)(</tabBarController>)'
+    match = re.search(pattern, source, re.S)
+    if not match: raise RuntimeError("Missing assistant tab bar storyboard scene")
+    body = re.sub(r'<segue\b[^>]*relationship="viewControllers"[^>]*/>', '', match.group(2))
+    source = source[:match.start(2)] + body + source[match.end(2):]
+    ET.fromstring(source)
+    storyboard.write_text(source, encoding="utf-8")
     project = ROOT / "AltStore.xcodeproj/project.pbxproj"
     text = project.read_text(encoding="utf-8")
     # Synchronized AltStore group automatically includes the assistant Swift files.

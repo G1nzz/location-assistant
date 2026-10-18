@@ -70,6 +70,7 @@ final class AssistantSigningCoordinator: ObservableObject {
             guard let self else { return }
             guard ready, let controller else {
                 if ready { self.session.endMaintenance() }
+                else { self.status = "未开始续签：\(self.session.status)" }
                 return
             }
             self.working = true

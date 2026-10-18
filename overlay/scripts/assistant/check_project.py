@@ -3,6 +3,7 @@ from pathlib import Path
 import hashlib
 import json
 import plistlib
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,6 +24,10 @@ def main():
     launch = (ROOT / "AltStore/LaunchViewController.swift").read_text()
     assert "updateAllSources" not in launch and "DatabaseManager.shared.start" not in launch
     assert "signIn(" not in launch and "SideJITManager" not in launch
+    storyboard = ET.parse(ROOT / "AltStore/iOS/Main.storyboard")
+    tabs = storyboard.find('.//tabBarController[@storyboardIdentifier="tabBarController"]')
+    assert tabs is not None
+    assert not tabs.findall('./connections/segue[@relationship="viewControllers"]'), "Old store pages must not load during assistant startup"
     app_delegate = (ROOT / "AltStore/AppDelegate.swift").read_text()
     assert "await AppBootManager.shared.performBootSequence()" not in app_delegate
     assert "await AnisetteServersManager.shared.performDailySyncIfNeeded()" not in app_delegate
