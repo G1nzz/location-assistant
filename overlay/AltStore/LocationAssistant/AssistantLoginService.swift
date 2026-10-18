@@ -43,6 +43,7 @@ actor AssistantLoginService {
 
     func fetch() async throws -> ALTAnisetteData {
         for address in AssistantLoginPolicy.serviceURLs {
+            try Task.checkCancellation()
             guard let server = URL(string: address) else { continue }
             do {
                 let configuration = try await client(server)
@@ -61,7 +62,10 @@ actor AssistantLoginService {
             } catch let error as AssistantLoginError {
                 if case .storage = error { throw error }
             } catch is CancellationError { throw CancellationError() }
-            catch { /* Try only the next fixed service; never log auth payloads. */ }
+            catch {
+                try Task.checkCancellation()
+                // Try only the next fixed service; never log auth payloads.
+            }
         }
         throw AssistantLoginError.serviceUnavailable
     }
@@ -76,8 +80,10 @@ actor AssistantLoginService {
     func checkService() async throws {
         clients.removeAll()
         for address in AssistantLoginPolicy.serviceURLs {
+            try Task.checkCancellation()
             if let url = URL(string: address), (try? await client(url)) != nil { return }
         }
+        try Task.checkCancellation()
         throw AssistantLoginError.serviceUnavailable
     }
 }

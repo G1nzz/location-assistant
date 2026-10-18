@@ -25,7 +25,10 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
         locationManager.distanceFilter = CLLocationDistanceMax
         locationManager.allowsBackgroundLocationUpdates = true
-        locationManager.pausesLocationUpdatesAutomatically = true
+        // The simulated position is stationary by definition. Automatic pausing
+        // would suspend the process and its iOS 26 keepalive timer. Updates are
+        // explicitly stopped on clear/failure and only run during simulation.
+        locationManager.pausesLocationUpdatesAutomatically = false
         if needsClear { status = "上次模拟可能仍有效，请先清除模拟定位" }
         NotificationCenter.default.addObserver(self, selector: #selector(becameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
     }
@@ -188,6 +191,11 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         } else {
             status = "后台定位权限未开启，连接可能中断；模拟位置仍可能有效"
         }
+    }
+
+    func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
+        guard !busy, activeCoordinate != nil else { return }
+        status = "后台保活被系统暂停；模拟位置可能仍有效。请返回本页检查连接，结束时仍需清除模拟。"
     }
 
     private func startKeepAlive(_ coordinate: CLLocationCoordinate2D) {

@@ -31,6 +31,10 @@ def main():
     start = body(session, 'func start(_ coordinate:')
     assert start.index('guard preflight == 0') < start.index('self.setNeedsClear(true)') < start.index('AssistantNative.set(')
     assert 'recordNativeFailure(stage: "清除模拟"' in session
+    assert 'pausesLocationUpdatesAutomatically = false' in session
+    assert 'locationManagerDidPauseLocationUpdates' in session
+    login_service = read('AltStore/LocationAssistant/AssistantLoginService.swift')
+    assert login_service.count('try Task.checkCancellation()') >= 4
     settings = read('AltStore/LocationAssistant/AssistantSettingsController.swift')
     service_check = settings[settings.index('case 9, 10:'):settings.index('default: break')]
     assert 'guard AssistantLoginPolicy.usesCompatibleService' in service_check
