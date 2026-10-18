@@ -159,30 +159,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             UserDefaults.standard.firstLaunch = Date()
         }
         
-        Task.detached(priority: .userInitiated) {
-            do
-            {
-                debugLog("Starting DatabaseManager...")
-                try await DatabaseManager.shared.start()
-                debugLog("Started DatabaseManager.")
-                
-                debugLog("Reconciling any staged drafts started...")
-                await Self.reconcileSelfReinstallationIfNeeded()
-                debugLog("Reconcile any staged drafts completed.")
-                
-                
-
-                // Perform one-time maintenance tasks after database is started
-                MaintenanceManager.shared.performMaintenanceIfNeeded()
-            }
-            catch
-            {
-                debugLog("Failed to start DatabaseManager. Error: \(error)")
-            }
-        }
+        // Signing database and maintenance are initialized only on explicit signing actions.
         
         self.setTintColor()
-        self.prepareImageCache()
+        // No store-image disk cache is required by the assistant UI.
 
         SecureValueTransformer.register()        
         
@@ -199,7 +179,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func applicationDidEnterBackground(_ application: UIApplication)
     {
-        // Make sure to update SceneDelegate.sceneDidEnterBackground() as well.
+        guard DatabaseManager.shared.isStarted else { return }
+        // The signing database may never have been opened in a location-only session.
         guard let oneMonthAgo = Calendar.current.date(byAdding: .month, value: -1, to: Date()) else { return }
         
         let midnightOneMonthAgo = Calendar.current.startOfDay(for: oneMonthAgo)
@@ -310,50 +291,7 @@ private extension AppDelegate
         }
     }
     
-    func open(_ url: URL) -> Bool
-    {
-        if url.isFileURL
-        {
-            guard url.pathExtension.lowercased() == "ipa" else { return false }
-
-            // Copy the shared .ipa out of its security-scoped location into a
-            // temporary directory we own, so it stays readable while signing.
-            let didStartAccessing = url.startAccessingSecurityScopedResource()
-            defer {
-                if didStartAccessing { url.stopAccessingSecurityScopedResource() }
-            }
-
-            let temporaryDirectory = FileManager.default.uniqueTemporaryURL()
-            do {
-                try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true, attributes: nil)
-            } catch {
-                debugLog("[AppDelegate] Failed to create temp directory for imported IPA: \(error)")
-                return false
-            }
-
-            let ipaURL = temporaryDirectory.appendingPathComponent(url.lastPathComponent)
-
-            do {
-                try FileManager.default.copyItem(at: url, to: ipaURL)
-            } catch {
-                debugLog("[AppDelegate] Failed to copy imported IPA: \(error)")
-                return false
-            }
-
-            if UIApplication.shared.applicationState == .active {
-                NotificationCenter.default.post(name: AppDelegate.importAppDeepLinkNotification, object: nil, userInfo: [AppDelegate.importAppDeepLinkURLKey: ipaURL])
-            } else {
-                // Defer until the app is active (cold launch) — see applicationDidBecomeActive.
-                self.pendingImportIPAURL = ipaURL
-            }
-
-            return true
-        }
-        else
-        {
-            return URLHandler.shared.handle(url)
-        }
-    }
+    func open(_ url: URL) -> Bool { false }
 }
 
 extension AppDelegate
@@ -595,7 +533,7 @@ private extension AppDelegate {
         }
     }
     
-    static func reconcileSelfReinstallationIfNeeded() {
+    nonisolated static func reconcileSelfReinstallationIfNeeded() {
         guard let appGroup = Bundle.main.altstoreAppGroup,
               let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
             debugLog("[AppDelegate] reconcileSelfReinstallation: Failed to get App Group container.")
@@ -644,11 +582,7 @@ private extension AppDelegate {
                 }
             }
             
-            if didSave {
-                Task {
-                    await WidgetDataManager.publishCurrentInstalledApps(in: context)
-                }
-            }
+            // The assistant does not ship the upstream widget extension.
         } else {
             debugLog("[AppDelegate] reconcileSelfReinstallation: BundlePath matched pre-installation path. Reinstallation was not completed or failed.")
         }

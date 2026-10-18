@@ -32,7 +32,12 @@ public final class CertificateManager: @unchecked Sendable {
     private let serialsKey = "importedCertificateSerials"
     private let metadataPrefix = "certMetadata_"
     
-    public private(set) var activeCertificate: ActiveSigningCertificate?
+    private let stateLock = NSRecursiveLock()
+    private var storedActiveCertificate: ActiveSigningCertificate?
+    public private(set) var activeCertificate: ActiveSigningCertificate? {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return storedActiveCertificate }
+        set { stateLock.lock(); defer { stateLock.unlock() }; storedActiveCertificate = newValue }
+    }
     
     private init() {
         _ = try? loadActiveCertificate()
@@ -59,12 +64,21 @@ public final class CertificateManager: @unchecked Sendable {
     /// Loads active signing certificate from Keychain into memory.
     @discardableResult
     public func loadActiveCertificate() throws -> ActiveSigningCertificate? {
-        guard let data = Keychain.shared.signingCertificate else {
-            debugLog("[CertificateManager] loadActiveCertificate: No signingCertificate data found in Keychain.")
-            self.activeCertificate = nil
-            return nil
+        stateLock.lock(); defer { stateLock.unlock() }
+        let data: Data
+        let password: String?
+        if let saved = try AssistantLocalKeychain.read(AssistantCertificateRecord.key) {
+            let record = try JSONDecoder().decode(AssistantCertificateRecord.self, from: saved)
+            data = record.p12Data
+            password = record.password
+        } else {
+            guard let legacy = Keychain.shared.signingCertificate else {
+                self.activeCertificate = nil
+                return nil
+            }
+            data = legacy
+            password = Keychain.shared.signingCertificatePassword
         }
-        let password = Keychain.shared.signingCertificatePassword
         do {
             let cert = try Self.parse(data, password: password)
             let active = ActiveSigningCertificate(certificate: cert, p12Data: data, password: password)
@@ -88,28 +102,23 @@ public final class CertificateManager: @unchecked Sendable {
 
     /// Sets active signing certificate in memory cache, encrypts and persists to Keychain.
     public func setActiveCertificate(_ cert: ALTCertificate?) throws {
+        stateLock.lock(); defer { stateLock.unlock() }
         if let cert = cert {
             do {
                 let password = getPassword(for: cert)
                 let p12Data = try Self.convert(cert, password: password)
-                let previousData = try AssistantLocalKeychain.read("signingCertificate")
-                let previousPassword = try AssistantLocalKeychain.read("signingCertificatePassword")
-                do {
-                    try AssistantLocalKeychain.write(password.map { Data($0.utf8) }, key: "signingCertificatePassword")
-                    try AssistantLocalKeychain.write(p12Data, key: "signingCertificate")
-                    guard let stored = try AssistantLocalKeychain.read("signingCertificate") else {
-                        throw AssistantLoginError.storage(OSStatusCode: -25300)
-                    }
-                    let restored = try Self.parse(stored, password: password)
-                    guard !restored.privateKey.isEmpty,
-                          restored.serialNumber.caseInsensitiveCompare(cert.serialNumber) == .orderedSame else {
-                        throw AssistantLoginError.storage(OSStatusCode: -26275)
-                    }
-                } catch {
-                    try? AssistantLocalKeychain.write(previousPassword, key: "signingCertificatePassword")
-                    try? AssistantLocalKeychain.write(previousData, key: "signingCertificate")
-                    throw error
+                // Commit data and its password as one keychain item. Process
+                // termination cannot leave the authoritative record half-updated.
+                let restored = try Self.parse(p12Data, password: password)
+                guard !restored.privateKey.isEmpty,
+                      restored.serialNumber.caseInsensitiveCompare(cert.serialNumber) == .orderedSame else {
+                    throw AssistantLoginError.storage(OSStatusCode: -26275)
                 }
+                let record = AssistantCertificateRecord(p12Data: p12Data, password: password)
+                try AssistantLocalKeychain.write(JSONEncoder().encode(record), key: AssistantCertificateRecord.key)
+                // Compatibility copies are not the authoritative active record.
+                try? AssistantLocalKeychain.write(password.map { Data($0.utf8) }, key: "signingCertificatePassword")
+                try? AssistantLocalKeychain.write(p12Data, key: "signingCertificate")
                 saveCertificate(cert)
                 let active = ActiveSigningCertificate(certificate: cert, p12Data: p12Data, password: password)
                 self.activeCertificate = active
@@ -120,6 +129,7 @@ public final class CertificateManager: @unchecked Sendable {
             }
         } else {
             self.activeCertificate = nil
+            try? AssistantLocalKeychain.write(nil, key: AssistantCertificateRecord.key)
             Keychain.shared.clearCertificates()
             debugLog("[CertificateManager] setActiveCertificate: Cleared active certificate in Keychain.")
         }
@@ -127,8 +137,10 @@ public final class CertificateManager: @unchecked Sendable {
 
     /// Clears active certificate in memory cache and Keychain.
     public func clearActiveCertificate() {
+        stateLock.lock(); defer { stateLock.unlock() }
         debugLog("[CertificateManager] clearActiveCertificate: Clearing active certificate.")
         self.activeCertificate = nil
+        try? AssistantLocalKeychain.write(nil, key: AssistantCertificateRecord.key)
         Keychain.shared.clearCertificates()
     }
     

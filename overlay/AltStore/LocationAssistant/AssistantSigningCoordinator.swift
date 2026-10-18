@@ -2,6 +2,7 @@ import UIKit
 import Combine
 import SideSign
 import MinimuxerCommon
+import Minimuxer
 
 // Signing is opt-in and does not own the location status or location-page startup.
 @MainActor
@@ -12,8 +13,8 @@ final class AssistantSigningCoordinator: ObservableObject {
     @Published private(set) var expiration: Date?
     @Published private(set) var profileRead = false
     @Published private(set) var hasPrivateKey = false
-    private var runtimeStarted = false
     private var loadingProfile = false
+    private var databasePrepared = false
     private var progressObservation: NSKeyValueObservation?
     private var refreshGroup: RefreshGroup?
     private let session = AssistantSession.shared
@@ -25,7 +26,8 @@ final class AssistantSigningCoordinator: ObservableObject {
         Task {
             let snapshot = await Task.detached(priority: .utility) {
                 let expiry = (try? ALTProvisioningProfile(url: url))?.expirationDate
-                let ownsKey = CertificateManager.shared.activeCertificate.map { !$0.certificate.privateKey.isEmpty } ?? false
+                try? AssistantLocalKeychain.migrateIfNeeded()
+                let ownsKey = (try? CertificateManager.shared.loadActiveCertificate()).map { !$0.certificate.privateKey.isEmpty } ?? false
                 return (expiry, ownsKey)
             }.value
             expiration = snapshot.0
@@ -35,16 +37,27 @@ final class AssistantSigningCoordinator: ObservableObject {
         }
     }
 
+    private func prepareDatabase() async throws {
+        try await DatabaseManager.shared.start()
+        if !databasePrepared {
+            await Task.detached(priority: .utility) {
+                AppDelegate.reconcileSelfReinstallationIfNeeded()
+                MaintenanceManager.shared.performMaintenanceIfNeeded()
+            }.value
+            databasePrepared = true
+        }
+    }
+
     private func prepareRuntime() async throws {
         status = "正在准备本设备续签记录…"
-        try await DatabaseManager.shared.start()
+        try await prepareDatabase()
         guard let pairing = PairingFileManager.shared.fetchPairingFile() else { throw OperationError.invalidPairingFile() }
-        _ = try PairingFileParser.parse(content: pairing)
-        if !runtimeStarted {
-            status = "正在连接本设备续签服务…"
-            try await AppBootManager.shared.startMinimuxer(pairingFile: pairing)
-            runtimeStarted = true
-        }
+        _ = try AssistantPairingPolicy.normalize(Data(pairing.utf8), expectedUDID: Bundle.main.object(forInfoDictionaryKey: "ALTDeviceID") as? String)
+        status = "正在连接本设备续签服务…"
+        // A changed pairing file/IP or a prior failed connection must not reuse a
+        // cached `started` flag. Stop the old proxy and initialize current inputs.
+        await minimuxer.core.stop()
+        try await AppBootManager.shared.startMinimuxer(pairingFile: pairing)
     }
 
     func signIn(presenting controller: UIViewController) {
@@ -53,10 +66,13 @@ final class AssistantSigningCoordinator: ObservableObject {
         status = "正在准备签名账号验证…"
         Task {
             do {
-                try await prepareRuntime()
+                try await prepareDatabase()
                 status = "正在验证 Apple 签名账号；请完成弹出的登录与验证码提示"
-                _ = try await AuthManager.shared.signIn(presentingViewController: controller)
-                status = "账号与证书验证完成；尚未刷新自身签名"
+                // Account verification neither requires a device tunnel nor starts
+                // registration, certificate replacement or a forced reinstall.
+                _ = try await AuthManager.shared.signIn(presentingViewController: controller,
+                    skipDeviceRegistration: true, skipCertificateProvisioning: true)
+                status = "账号验证完成；证书有效性与实际续签尚未验证"
             } catch { fail(stage: "签名账号验证", error: error) }
             working = false
             session.endMaintenance()

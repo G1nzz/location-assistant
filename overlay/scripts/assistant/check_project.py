@@ -11,6 +11,8 @@ def main():
     lock = json.loads((ROOT / "upstream-lock.json").read_text())
     assert lock["sidestore"]["commit"] == "6032424a0e56c1c319762e786099bdd9186a238b"
     assert lock["stikdebug"]["commit"] == "4bdfc92aa7cebd7a534f1e1ef56415f5727402de"
+    resolved = ROOT / "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+    assert hashlib.sha256(resolved.read_bytes()).hexdigest() == lock["swiftpm_resolved_sha256"], "Transitive dependency lock changed"
     library = ROOT / "Vendor/idevice/libidevice_ffi.a"
     assert hashlib.sha256(library.read_bytes()).hexdigest() == lock["stikdebug"]["ffi_sha256"]
     plist = plistlib.loads((ROOT / "AltStore/Info.plist").read_bytes())
@@ -20,7 +22,7 @@ def main():
     assert plist["CFBundleDisplayName"] == "定位助手"
     assert "CFBundleDocumentTypes" not in plist
     assert "BASE_BUNDLE_ID = com.locationassistant.personal" in (ROOT / "Build.xcconfig").read_text()
-    assert "MARKETING_VERSION = 0.2.0" in (ROOT / "Build.xcconfig").read_text()
+    assert "MARKETING_VERSION = 0.2.1" in (ROOT / "Build.xcconfig").read_text()
     launch = (ROOT / "AltStore/LaunchViewController.swift").read_text()
     assert "updateAllSources" not in launch and "DatabaseManager.shared.start" not in launch
     assert "signIn(" not in launch and "SideJITManager" not in launch

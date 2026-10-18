@@ -1,5 +1,11 @@
 import Foundation
 
+struct AssistantCertificateRecord: Codable {
+    static let key = "assistant.activeSigningCertificate.v1"
+    let p12Data: Data
+    let password: String?
+}
+
 enum AssistantCertificateError: Error, LocalizedError {
     case missingPrivateKey, certificateNotOnAccount, invalidFile
     var errorDescription: String? {

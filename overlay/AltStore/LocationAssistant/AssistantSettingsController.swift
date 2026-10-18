@@ -41,11 +41,10 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
             alert.addAction(UIAlertAction(title: "取消", style: .cancel))
             alert.addAction(UIAlertAction(title: "保存", style: .default) { _ in
                 let value = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let parts = value.split(separator: ".", omittingEmptySubsequences: false)
-                guard parts.count == 4, parts.allSatisfy({ part in
-                    !part.isEmpty && part.allSatisfy(\.isNumber) && (Int(part).map { (0...255).contains($0) } ?? false)
-                }) else { self.show("IP 无效", "请输入完整 IPv4 地址，不要带斜杠或端口。"); return }
-                self.session.deviceIP = value
+                guard let ip = AssistantIPv4.canonical(value) else {
+                    self.show("IP 无效", "请输入完整 IPv4 地址，不要带斜杠或端口。"); return
+                }
+                self.session.deviceIP = ip
                 self.tableView.reloadData()
             })
             present(alert, animated: true)
@@ -121,21 +120,24 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
                 let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
                 guard ((attributes[.size] as? NSNumber)?.intValue ?? 0) <= 2_000_000 else { throw CocoaError(.fileReadTooLarge) }
                 let data = try Data(contentsOf: url)
-                guard let content = String(data: data, encoding: .utf8) else { throw CocoaError(.fileReadCorruptFile) }
-                _ = try PairingFileParser.parse(content: content)
-                try PairingFileManager.shared.savePairingFile(contents: content)
+                let snapshot = try AssistantPairingPolicy.normalize(data,
+                    expectedUDID: Bundle.main.object(forInfoDictionaryKey: "ALTDeviceID") as? String)
+                _ = try PairingFileParser.parse(content: snapshot.content)
+                try PairingFileManager.shared.savePairingFile(contents: snapshot.content)
                 DispatchQueue.main.async {
                     self.importing = false
                     self.session.endMaintenance()
                     self.tableView.reloadData()
-                    self.show("配对文件已保存", "每台设备必须使用自己的文件。请重新打开 App，让定位与续签连接加载新配对文件，再检查定位连接。配对文件与签名证书是两类不同文件。")
+                    self.show("配对文件已保存", snapshot.kind == .remote
+                        ? "已保存远程配对文件。下次定位或续签会读取新文件，无需重新导入证书。请检查定位连接。"
+                        : "已保存传统配对文件，可供续签使用。当前定位模块需要远程配对文件；请用 iloader 获取本设备的远程配对后再使用定位。")
                 }
             } catch {
                 DispatchQueue.main.async {
                     self.importing = false
                     self.session.endMaintenance()
                     self.tableView.reloadData()
-                    self.show("导入失败", "文件无法读取或格式不正确。请用 iloader 为本设备重新生成配对文件。")
+                    self.show("导入失败", (error as? AssistantPairingError)?.localizedDescription ?? "文件无法读取或格式不正确。请用 iloader 为本设备重新生成配对文件。")
                 }
             }
         }

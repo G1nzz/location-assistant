@@ -93,11 +93,15 @@ final class AssistantLocationController: UIViewController, MKMapViewDelegate, UI
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         invalidateSearch()
+        searchItems = []
+        results.reloadData()
+        results.isHidden = true
+        search.prompt = nil
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { searchItems = []; results.reloadData(); results.isHidden = true; return }
         let generation = searchGeneration
         let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+            guard let self, self.searchGeneration == generation else { return }
             let request = MKLocalSearch.Request()
             request.naturalLanguageQuery = query
             request.region = self.map.region
@@ -109,8 +113,8 @@ final class AssistantLocationController: UIViewController, MKMapViewDelegate, UI
                     self.searchItems = Array((response?.mapItems ?? []).prefix(20))
                     self.results.reloadData()
                     self.results.isHidden = self.searchItems.isEmpty
-                    if error != nil { self.selectedLabel.text = "搜索失败，请检查网络；仍可地图选点或输入坐标" }
-                    else if self.searchItems.isEmpty { self.selectedLabel.text = "未找到地点，请换关键词" }
+                    if error != nil { self.search.prompt = "搜索失败，请检查网络；仍可地图选点或输入坐标" }
+                    else if self.searchItems.isEmpty { self.search.prompt = "未找到地点，请换关键词" }
                 }
             }
         }
@@ -147,6 +151,9 @@ final class AssistantLocationController: UIViewController, MKMapViewDelegate, UI
 
     private func select(_ value: CLLocationCoordinate2D, name: String, recenter: Bool) {
         guard AssistantCoordinate.valid(value) else { return }
+        invalidateSearch()
+        results.isHidden = true
+        search.prompt = nil
         coordinate = value
         selectedName = name
         selectedLabel.text = String(format: "%@ · WGS-84：%.6f, %.6f", name, value.latitude, value.longitude)
@@ -170,7 +177,7 @@ final class AssistantLocationController: UIViewController, MKMapViewDelegate, UI
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         alert.addAction(UIAlertAction(title: "选择", style: .default) { [weak self] _ in
             guard let value = AssistantCoordinate.parse(latitude: alert.textFields?[0].text ?? "", longitude: alert.textFields?[1].text ?? "") else {
-                self?.selectedLabel.text = "坐标无效：纬度 -90～90，经度 -180～180"
+                self?.search.prompt = "坐标无效：纬度 -90～90，经度 -180～180；原选择未更改"
                 return
             }
             self?.select(value, name: "输入坐标", recenter: true)

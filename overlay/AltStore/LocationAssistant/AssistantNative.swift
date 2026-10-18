@@ -42,9 +42,21 @@ private enum LocationSimulationState {
 }
 
 enum AssistantNative {
+static func preflight(ip: String) -> Int32 {
+    guard AssistantIPv4.canonical(ip) == ip else { return 1 }
+    guard let content = PairingFileManager.shared.fetchPairingFile() else { return 2 }
+    do {
+        let pairing = try AssistantPairingPolicy.normalize(Data(content.utf8),
+            expectedUDID: Bundle.main.object(forInfoDictionaryKey: "ALTDeviceID") as? String)
+        guard pairing.kind == .remote else { return 4 }
+    } catch { return 2 }
+    return 0
+}
+
 static func connect(ip: String) -> Int32 {
     if LocationSimulationState.locationSimulation != nil { return 0 }
-
+    let check = preflight(ip: ip)
+    guard check == 0 else { return check }
     guard let content = PairingFileManager.shared.fetchPairingFile() else { return 2 }
     let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("AssistantPairing", isDirectory: true)
@@ -104,6 +116,25 @@ static func connect(ip: String) -> Int32 {
         LocationSimulationState.cleanup()
         return LocationSimulationStatus.providerCreate
     }
+
+    // The FFI may update remote pairing during tunnel establishment. Persist
+    // successful updates so the next launch does not retry with obsolete keys.
+    var pairingBytes: UnsafeMutablePointer<UInt8>?
+    var pairingLength: UInt = 0
+    if let error = rp_pairing_file_to_bytes(pairingHandle, &pairingBytes, &pairingLength) {
+        idevice_error_free(error)
+        LocationSimulationState.cleanup()
+        return 5
+    }
+    guard let pairingBytes else { LocationSimulationState.cleanup(); return 5 }
+    defer { idevice_data_free(pairingBytes, pairingLength) }
+    do {
+        let updated = try AssistantPairingPolicy.normalize(Data(bytes: pairingBytes, count: Int(pairingLength)))
+        let previous = try AssistantPairingPolicy.normalize(Data(content.utf8))
+        if updated.content != previous.content {
+            try PairingFileManager.shared.savePairingFile(contents: updated.content)
+        }
+    } catch { LocationSimulationState.cleanup(); return 5 }
 
     let remoteServerError = remote_server_connect_rsd(
         LocationSimulationState.adapter,

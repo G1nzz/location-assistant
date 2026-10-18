@@ -10,4 +10,9 @@ require(!AssistantSigningPolicy.matches("", portalSerials: [""], hasPrivateKey: 
 require(AssistantSigningPolicy.canCreateCertificate(portalSerials: [], hasImportedCertificate: false), "New account can create its first certificate")
 require(!AssistantSigningPolicy.canCreateCertificate(portalSerials: ["ab12"], hasImportedCertificate: false), "Missing private key must not create replacement certificate")
 require(!AssistantSigningPolicy.canCreateCertificate(portalSerials: [], hasImportedCertificate: true), "Imported certificate missing from portal must not trigger replacement")
+for password in [nil, "中文-file-password"] as [String?] {
+    let record = AssistantCertificateRecord(p12Data: Data([0, 128, 255]), password: password)
+    let loaded = try JSONDecoder().decode(AssistantCertificateRecord.self, from: JSONEncoder().encode(record))
+    require(loaded.p12Data == record.p12Data && loaded.password == password, "Certificate and decryption password stay in one record, including nil password")
+}
 print("Certificate account, private-key and creation-policy tests passed")

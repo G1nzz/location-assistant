@@ -62,6 +62,7 @@ final class SignInOperation: BaseStandaloneOperation<StandaloneOperationContext,
         }
         try await super.executePreconditionCheck(parentProgress: parentProgress)
         try AssistantLocalKeychain.migrateIfNeeded()
+        _ = try CertificateManager.shared.loadActiveCertificate()
 
         do {
             let authResult: SignInResult
@@ -79,6 +80,9 @@ final class SignInOperation: BaseStandaloneOperation<StandaloneOperationContext,
                 }
                 if !self.skipCertificateProvisioning { try CertificateManager.shared.setActiveCertificate(certToUse) }
                 
+                if !self.skipDeviceRegistration {
+                    _ = try await self.registerCurrentDevice(for: team, session: session)
+                }
                 self.debugLog("[SignInOperation] Using cached session, team, certificate")
                 authResult = SignInResult(
                     team: team, 

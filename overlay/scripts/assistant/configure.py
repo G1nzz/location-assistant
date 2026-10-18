@@ -40,8 +40,8 @@ def main():
     project.write_text(text, encoding="utf-8")
     build = ROOT / "Build.xcconfig"
     text = build.read_text(encoding="utf-8")
-    text = re.sub(r"(?m)^MARKETING_VERSION = .*", "MARKETING_VERSION = 0.2.0", text)
-    text = re.sub(r"(?m)^CURRENT_PROJECT_VERSION = .*", "CURRENT_PROJECT_VERSION = 4", text)
+    text = re.sub(r"(?m)^MARKETING_VERSION = .*", "MARKETING_VERSION = 0.2.1", text)
+    text = re.sub(r"(?m)^CURRENT_PROJECT_VERSION = .*", "CURRENT_PROJECT_VERSION = 5", text)
     text = re.sub(r"(?m)^ORG_IDENTIFIER = .*", "ORG_IDENTIFIER = com.locationassistant", text)
     text = re.sub(r"(?m)^BASE_BUNDLE_ID\s*= .*", "BASE_BUNDLE_ID = com.locationassistant.personal", text)
     build.write_text(text, encoding="utf-8")

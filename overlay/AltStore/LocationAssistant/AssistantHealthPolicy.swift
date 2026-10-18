@@ -1,5 +1,19 @@
 import Foundation
 
+enum AssistantIPv4 {
+    static func canonical(_ value: String) -> String? {
+        let parts = value.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return nil }
+        var numbers = [String]()
+        for part in parts {
+            guard !part.isEmpty, part.utf8.allSatisfy({ (48...57).contains($0) }),
+                  let number = Int(part), (0...255).contains(number) else { return nil }
+            numbers.append(String(number))
+        }
+        return numbers.joined(separator: ".")
+    }
+}
+
 enum AssistantSignatureWindow: Equatable {
     case unknown, expired, dueSoon, valid
     static func evaluate(expiration: Date?, now: Date = Date()) -> Self {

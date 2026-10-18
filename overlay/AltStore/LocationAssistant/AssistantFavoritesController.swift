@@ -1,10 +1,7 @@
 import UIKit
 import CoreLocation
 
-struct AssistantFavorite: Codable {
-    let name: String
-    let latitude: Double
-    let longitude: Double
+extension AssistantFavorite {
     var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: latitude, longitude: longitude) }
 }
 
@@ -14,6 +11,7 @@ final class AssistantFavoritesController: UITableViewController {
     private let onSelect: (AssistantFavorite) -> Void
     private var items: [AssistantFavorite] = []
     private var saving = false
+    private var loaded = false
     private static let queue = DispatchQueue(label: "locationassistant.favorites", qos: .utility)
     private static var file: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AssistantFavorites.json")
@@ -31,11 +29,20 @@ final class AssistantFavoritesController: UITableViewController {
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "收藏当前点", style: .plain, target: self, action: #selector(add))
         navigationItem.rightBarButtonItem?.isEnabled = false
         Self.queue.async {
-            let items = (try? JSONDecoder().decode([AssistantFavorite].self, from: Data(contentsOf: Self.file))) ?? []
-            DispatchQueue.main.async {
-                self.items = items.filter { AssistantCoordinate.valid($0.coordinate) }
-                self.navigationItem.rightBarButtonItem?.isEnabled = self.selected != nil
-                self.tableView.reloadData()
+            do {
+                let items = try AssistantFavoriteStore(file: Self.file).load()
+                DispatchQueue.main.async {
+                    self.items = items
+                    self.loaded = true
+                    self.navigationItem.rightBarButtonItem?.isEnabled = self.selected != nil
+                    self.tableView.reloadData()
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    let alert = UIAlertController(title: "收藏读取失败", message: "已有收藏无法读取，已暂停修改以保留原文件。请勿删除 App；检查剩余空间后重新打开收藏。", preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "知道了", style: .default))
+                    self.present(alert, animated: true)
+                }
             }
         }
     }
@@ -51,7 +58,7 @@ final class AssistantFavoritesController: UITableViewController {
         onSelect(items[indexPath.row])
         navigationController?.popViewController(animated: true)
     }
-    override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool { !saving }
+    override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool { loaded && !saving }
     override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
         guard editingStyle == .delete, !saving else { return }
         var updated = items
@@ -59,7 +66,7 @@ final class AssistantFavoritesController: UITableViewController {
         save(updated)
     }
     @objc private func add() {
-        guard !saving, let selected else { return }
+        guard loaded, !saving, let selected else { return }
         let alert = UIAlertController(title: "收藏位置", message: nil, preferredStyle: .alert)
         alert.addTextField { $0.text = self.selectedName }
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
@@ -74,9 +81,7 @@ final class AssistantFavoritesController: UITableViewController {
         navigationItem.rightBarButtonItem?.isEnabled = false
         Self.queue.async {
             do {
-                let file = Self.file
-                try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try JSONEncoder().encode(updated).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                try AssistantFavoriteStore(file: Self.file).save(updated)
                 DispatchQueue.main.async { self.items = updated; self.finishedSaving(); self.tableView.reloadData() }
             } catch {
                 DispatchQueue.main.async {

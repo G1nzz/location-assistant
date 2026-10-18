@@ -74,21 +74,36 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         generation += 1
         stopKeepAlive()
         let ip = deviceIP
-        // Persist intent before the command: a lost reply must not imply that nothing happened.
-        setNeedsClear(true)
         workQueue.async {
-            let result = AssistantNative.set(ip: ip, coordinate: coordinate)
+            let preflight = AssistantNative.preflight(ip: ip)
             DispatchQueue.main.async {
-                self.busy = false
-                if result == 0 {
-                    self.activeCoordinate = coordinate
-                    self.status = "模拟位置已提交，可切换到地图 App 验证"
-                    self.startBackgroundSupport()
-                    self.startKeepAlive(coordinate)
-                } else {
-                    self.status = Self.failure(result)
+                guard preflight == 0 else {
+                    self.busy = false
                     self.activeCoordinate = nil
                     self.locationManager.stopUpdatingLocation()
+                    self.status = Self.failure(preflight)
+                    self.recordNativeFailure(stage: "定位前检查", code: preflight)
+                    return
+                }
+                // Only a command that can reach the device creates an unknown
+                // state. Persist intent before sending, never after the reply.
+                self.setNeedsClear(true)
+                self.workQueue.async {
+                    let result = AssistantNative.set(ip: ip, coordinate: coordinate)
+                    DispatchQueue.main.async {
+                        self.busy = false
+                        if result == 0 {
+                            self.activeCoordinate = coordinate
+                            self.status = "模拟位置已提交，可切换到地图 App 验证"
+                            self.startBackgroundSupport()
+                            self.startKeepAlive(coordinate)
+                        } else {
+                            self.status = Self.failure(result)
+                            self.recordNativeFailure(stage: "开始模拟", code: result)
+                            self.activeCoordinate = nil
+                            self.locationManager.stopUpdatingLocation()
+                        }
+                    }
                 }
             }
         }
@@ -112,6 +127,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
                     self.status = "清除请求成功，请在地图中重新获取当前位置"
                 } else {
                     self.setNeedsClear(true)
+                    self.recordNativeFailure(stage: "清除模拟", code: result)
                     self.status = "清除失败（\(result)）。保持 LocalDevVPN 连接后重试；仍失败请关闭 VPN、重启设备，暂勿重新开启模拟。"
                 }
                 completion?(result == 0)
@@ -146,6 +162,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
             DispatchQueue.main.async {
                 self.busy = false
                 self.status = code == 0 ? "定位服务连接成功；续签连接会在刷新时另行检查" : Self.failure(code)
+                if code != 0 { self.recordNativeFailure(stage: "定位连接检查", code: code) }
                 completion(self.status)
             }
         }
@@ -191,6 +208,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
                     self.stopKeepAlive()
                     self.activeCoordinate = nil
                     self.locationManager.stopUpdatingLocation()
+                    self.recordNativeFailure(stage: "后台定位连接", code: code)
                     self.status = "定位连接中断（\(code)）；系统可能仍保留模拟位置，请清除后重试"
                 }
             }
@@ -217,6 +235,8 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         case 1: return "设备 IP 无效，请填写 IPv4 地址，不要带 /32"
         case 2: return "配对文件缺失或无效，请导入本设备的配对文件"
         case 3: return "设备连接失败，请检查 Wi-Fi、LocalDevVPN 和配对文件"
+        case 4: return "当前是传统配对文件：可供续签使用，但定位模块需要本设备的远程配对文件。"
+        case 5: return "远程配对更新无法保存，已停止提交新位置。请检查设备空间与配对文件，再重试或清除模拟。"
         case 9, 10: return "定位服务连接失败（\(code)），请检查开发者模式及系统兼容性"
         default: return "定位命令失败（\(code)）；模拟状态未知，请尝试清除"
         }
@@ -224,11 +244,16 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
 
     var lastDiagnostic: String { UserDefaults.standard.string(forKey: "assistant.lastFailure") ?? "尚未记录失败" }
 
+    private func recordNativeFailure(stage: String, code: Int32) {
+        UserDefaults.standard.set("阶段：\(stage)\n定位错误代码：\(code)\n\(Self.failure(code))", forKey: "assistant.lastFailure")
+    }
+
     func recordFailure(stage: String, error: Error) {
         UserDefaults.standard.set("阶段：\(stage)\n\(Self.safeError(error))", forKey: "assistant.lastFailure")
     }
 
     static func safeError(_ error: Error) -> String {
+        if let pairingError = error as? AssistantPairingError { return pairingError.localizedDescription }
         if let certificateError = error as? AssistantCertificateError { return certificateError.localizedDescription }
         if let loginError = error as? AssistantLoginError { return loginError.localizedDescription }
         if error is CancellationError { return "操作已取消" }

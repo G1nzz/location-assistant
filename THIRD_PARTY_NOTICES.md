@@ -12,3 +12,5 @@
 依赖各自的许可证保留在下载后的源码中。Swift Package Manager 的间接依赖沿用上游 Package.resolved，具体版本以云端构建输出为准。完整来源记录在 upstream-lock.json。
 
 公开仓库以固定版本下载脚本和修改覆盖文件组成，构建时还原完整源码。账号、真实 UDID、配对文件、位置收藏和开发者证书不属于公开源码。
+
+0.2.1 对固定 SideSign 增加本地 WebSocket 截止与取消补丁，文件和摘要列入 upstream-lock.json；原始版权和 AGPL 声明保留。
