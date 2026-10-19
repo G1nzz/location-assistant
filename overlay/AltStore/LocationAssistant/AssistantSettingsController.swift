@@ -116,11 +116,11 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
                 }
             }
         case 11:
-            if session.needsClear { show("请先清除模拟定位", "先清除当前模拟，再提前下载映像。"); return }
+            if session.activeCoordinate != nil { show("请先清除正在运行的模拟", "先清除当前运行的模拟，再切换网络下载映像。"); return }
             session.downloadDeveloperImages()
-            show("正在提前下载映像", "这一步不需要连接 LocalDevVPN。请使用能访问下载源的网络，并保持 App 在前台。\n\n点知道了后到定位页查看状态；显示已下载并校验后，再切换到 LocalDevVPN，返回设置准备定位开发服务。")
+            show("正在提前下载映像", "这一步不需要连接 LocalDevVPN。请使用能访问下载源的网络，并保持 App 在前台。\n\n点知道了后到定位页查看状态；完成后再切换到 LocalDevVPN。若有遗留模拟，请先在定位页清除；否则返回设置准备定位开发服务。")
         case 12:
-            if session.needsClear { show("请先清除模拟定位", "若清除时需要开发者映像，会自动准备；当前请先在定位页清除模拟。"); return }
+            if session.needsClear { show("请先清除模拟定位", "需要补齐映像时，可先提前下载；完成后连接 LocalDevVPN，再到定位页清除遗留模拟。"); return }
             session.prepareDeveloperServices()
             show("正在准备开发服务", "请连接 LocalDevVPN 并保持 App 在前台，到定位页查看状态。\n\n如果当前网络无法访问下载源，请先用提前下载开发者映像完成下载与校验，再切换到 LocalDevVPN 执行本步骤。")
         default: break

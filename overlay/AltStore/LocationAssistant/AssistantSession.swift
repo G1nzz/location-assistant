@@ -112,7 +112,11 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     func downloadDeveloperImages() {
-        guard beginMaintenance() else { return }
+        // Cache-only work is safe while a previous simulated position is
+        // unknown. Do not force a successful clear before downloading the
+        // resources that clear may itself need. Block an actively held session.
+        guard !busy, activeCoordinate == nil else { return }
+        busy = true
         generation += 1
         let method = AssistantDDIMethod.current
         status = "正在准备提前下载映像…"
@@ -121,7 +125,9 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
             do {
                 _ = try await downloadDeveloperImages(method: method)
                 try Task.checkCancellation()
-                status = "映像文件已下载并校验；现在可切换到 LocalDevVPN，再到设置准备定位开发服务。尚未挂载或模拟定位。"
+                status = needsClear
+                    ? "映像文件已下载并校验；请切换到 LocalDevVPN，再到定位页清除遗留模拟。未知模拟记录仍保留。"
+                    : "映像文件已下载并校验；现在可切换到 LocalDevVPN，再到设置准备定位开发服务。尚未挂载或模拟定位。"
             } catch { preparationFailed(error) }
         }
     }

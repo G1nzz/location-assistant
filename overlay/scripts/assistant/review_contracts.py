@@ -37,6 +37,9 @@ def main():
         assert 'AssistantNative' not in preload and 'native {' not in preload
         assert 'signIn' not in preload and 'CertificateManager' not in preload
     assert 'diagnostic = failure.diagnostic' in session
+    standalone = body(session, 'func downloadDeveloperImages()')
+    assert 'activeCoordinate == nil' in standalone
+    assert 'beginMaintenance' not in standalone and 'setNeedsClear' not in standalone
     assert 'func prepare(method:' in read('AltStore/LocationAssistant/AssistantDDIAssets.swift')
     assert 'recordNativeFailure(stage: "清除模拟"' in session
     assert 'pausesLocationUpdatesAutomatically = false' in session
