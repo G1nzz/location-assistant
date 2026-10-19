@@ -1,5 +1,6 @@
 import UIKit
 import Combine
+import CoreData
 import SideSign
 import MinimuxerCommon
 import Minimuxer
@@ -17,6 +18,7 @@ final class AssistantSigningCoordinator: ObservableObject {
     @Published private(set) var accountStatus = "正在读取本设备登录凭据…"
     @Published private(set) var lastReceipt: AssistantSigningHistory.Receipt?
     private var loadingProfile = false
+    private var reloadRequested = false
     private var databasePrepared = false
     private var progressObservation: NSKeyValueObservation?
     private var refreshGroup: RefreshGroup?
@@ -42,7 +44,7 @@ final class AssistantSigningCoordinator: ObservableObject {
     }
 
     func reloadInstalledSignature() {
-        guard !loadingProfile else { return }
+        guard !loadingProfile else { reloadRequested = true; return }
         loadingProfile = true
         let url = Bundle.main.bundleURL.appendingPathComponent("embedded.mobileprovision")
         Task {
@@ -80,6 +82,10 @@ final class AssistantSigningCoordinator: ObservableObject {
             }
             profileRead = true
             loadingProfile = false
+            if reloadRequested {
+                reloadRequested = false
+                reloadInstalledSignature()
+            }
         }
     }
 

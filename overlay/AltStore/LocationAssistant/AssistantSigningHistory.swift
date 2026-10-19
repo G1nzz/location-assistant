@@ -28,7 +28,8 @@ struct AssistantSigningHistory: Codable {
 
     mutating func record(_ kind: Kind, message: String? = nil, expiration: Date? = nil,
                          now: Date = Date(), defaults: UserDefaults = .standard) {
-        let resolved: Kind = kind == .refreshAccepted && (expiration == nil || expiration! <= now) ? .refreshUnconfirmed : kind
+        let validExpiration = expiration.map { $0 > now } ?? false
+        let resolved: Kind = kind == .refreshAccepted && !validExpiration ? .refreshUnconfirmed : kind
         event = Event(kind: resolved, date: now, message: message.map { String($0.prefix(768)) })
         if resolved == .refreshAccepted, let expiration {
             receipt = Receipt(date: now, profileExpiration: expiration)
