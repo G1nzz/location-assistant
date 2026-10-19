@@ -19,6 +19,17 @@ def main():
     assert 'exportPairingFile' not in scene and 'URLHandler.shared' not in scene and 'DatabaseManager.shared' not in scene
     signing = read('AltStore/LocationAssistant/AssistantSigningCoordinator.swift')
     account = body(signing, 'func signIn(presenting')
+    bootstrap = body(signing, 'private func prepareDatabase()')
+    assert 'MaintenanceManager' not in bootstrap and 'clearAll(' not in bootstrap and 'signOut(' not in bootstrap
+    assert 'AssistantSigningHistory.load()' in signing
+    assert 'case .failure(let error):' in body(signing, 'func reloadInstalledSignature()')
+    assert 'record(.refreshStarted)' in signing and 'record(.refreshAccepted, expiration: expiry)' in signing
+    importer = read('AltStore/LocationAssistant/AssistantCertificateImporter.swift')
+    assert importer.index('setActiveCertificate(certificate)') < importer.index('certificateImported()')
+    refresh = read('SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift')
+    assert 'try await installProvisioningProfiles' in refresh
+    ui = read('AltStore/LocationAssistant/AssistantAccountController.swift')
+    assert '安装包内到期时间' in ui and '最近续签回执' in ui
     assert 'prepareRuntime()' not in account
     assert 'skipDeviceRegistration: true, skipCertificateProvisioning: true' in account
     runtime = body(signing, 'private func prepareRuntime()')

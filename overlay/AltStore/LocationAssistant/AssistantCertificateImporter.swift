@@ -59,6 +59,7 @@ final class AssistantCertificateImporter: NSObject, UIDocumentPickerDelegate {
                 try CertificateManager.shared.setActiveCertificate(certificate)
                 DispatchQueue.main.async {
                     self.finish()
+                    AssistantSigningCoordinator.shared.certificateImported()
                     self.show("续签证书已导入", "已保存到本设备钥匙串。请在续签页登录该证书所属的 Apple 签名账号；登录时还会核对证书是否有效。尚未完成自身续签。")
                 }
             } catch {

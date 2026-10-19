@@ -6,6 +6,9 @@ python3 -B scripts/assistant/configure.py
 mkdir -p .build/artifacts
 python3 -B scripts/assistant/check_project.py
 python3 -B scripts/assistant/review_contracts.py
+python3 -B scripts/assistant/test_signing_lifecycle.py
+xcrun swiftc AltStore/LocationAssistant/AssistantSigningHistory.swift tests/assistant/history/main.swift -o .build/signing-history-tests
+.build/signing-history-tests
 xcrun swiftc AltStore/LocationAssistant/AssistantCoordinate.swift tests/assistant/main.swift -o .build/coordinate-tests
 .build/coordinate-tests
 xcrun swiftc AltStore/LocationAssistant/AssistantSigningPolicy.swift tests/assistant/signing/main.swift -o .build/signing-tests
@@ -50,4 +53,5 @@ cp docs/安装与恢复指南.md docs/验收记录.md .build/artifacts/
 cp docs/0.1.2-登录修复与更新.md .build/artifacts/
 cp docs/0.2.0-重构说明.md .build/artifacts/
 cp docs/0.2.1-内部审查.md docs/0.2.2-开发者服务准备.md docs/0.2.3-映像提前下载与诊断.md .build/artifacts/
+cp docs/0.2.4-续签私钥保留与回执.md .build/artifacts/
 echo 'IPA generated; on-device validation is still required.'
