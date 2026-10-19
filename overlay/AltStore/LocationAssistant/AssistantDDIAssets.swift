@@ -70,12 +70,50 @@ enum AssistantDDIStatus {
 
 // URLSession writes to disk; cap the transfer as it arrives. Reject redirects
 // outside the pinned HTTPS host. No account, pairing or certificate is supplied.
-private final class AssistantDDIDownloadLimit: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    let limit: Int64
+private final class AssistantDDIDownload: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let limit: Int64
     private let lock = NSLock()
+    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
+    private var session: URLSession?
+    private var task: URLSessionDownloadTask?
+    private var owned: URL?
+    private var fileError: Error?
+    private var cancelled = false
     private var exceeded = false
-    var exceededLimit: Bool { lock.lock(); defer { lock.unlock() }; return exceeded }
+    private var finished = false
+
     init(limit: Int) { self.limit = Int64(limit) }
+
+    func start(url: URL, continuation: CheckedContinuation<(URL, URLResponse), Error>) {
+        lock.lock()
+        if cancelled {
+            finished = true
+            lock.unlock()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        self.continuation = continuation
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 180
+        configuration.urlCache = nil
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        let task = session.downloadTask(with: url)
+        self.session = session
+        self.task = task
+        lock.unlock()
+        task.resume()
+    }
+
+    func cancel() {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        cancelled = true
+        let task = self.task
+        lock.unlock()
+        task?.cancel()
+    }
+
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         if totalBytesWritten > limit || totalBytesExpectedToWrite > limit {
@@ -83,7 +121,52 @@ private final class AssistantDDIDownloadLimit: NSObject, URLSessionDownloadDeleg
             downloadTask.cancel()
         }
     }
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        lock.lock()
+        let skip = cancelled || exceeded
+        lock.unlock()
+        guard !skip else { return }
+        do {
+            let size = try location.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard Int64(size) <= limit else {
+                lock.lock(); exceeded = true; lock.unlock()
+                downloadTask.cancel()
+                return
+            }
+            let destination = FileManager.default.temporaryDirectory.appendingPathComponent("assistant-ddi-" + UUID().uuidString)
+            // The delegate-owned temporary file is valid only during this
+            // callback. Move it before returning, then hand it to the caller.
+            try FileManager.default.moveItem(at: location, to: destination)
+            lock.lock(); owned = destination; lock.unlock()
+        } catch {
+            lock.lock(); fileError = error; lock.unlock()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true
+        let continuation = self.continuation
+        self.continuation = nil
+        let owned = self.owned
+        self.owned = nil
+        let result: Result<(URL, URLResponse), Error>
+        if cancelled { result = .failure(CancellationError()) }
+        else if exceeded { result = .failure(AssistantDDIError.sizeLimit) }
+        else if let fileError { result = .failure(AssistantDDIFailure.convert(fileError, stage: .cacheCommit)) }
+        else if let error { result = .failure(error) }
+        else if let owned, let response = task.response { result = .success((owned, response)) }
+        else { result = .failure(AssistantDDIError.response(nil)) }
+        self.task = nil
+        self.session = nil
+        lock.unlock()
+        session.invalidateAndCancel()
+        if case .failure = result, let owned { try? FileManager.default.removeItem(at: owned) }
+        continuation?.resume(with: result)
+    }
+
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
@@ -109,29 +192,12 @@ struct AssistantDDIAssets {
     }
 
     static func downloadAsset(_ url: URL, _ limit: Int) async throws -> (URL, URLResponse) {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 180
-        configuration.urlCache = nil
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-        let limiter = AssistantDDIDownloadLimit(limit: limit)
-        let result: (URL, URLResponse)
-        do { result = try await session.download(from: url, delegate: limiter) }
-        catch {
-            if limiter.exceededLimit { throw AssistantDDIError.sizeLimit }
-            throw error
-        }
-        let (temporary, response) = result
-        guard !limiter.exceededLimit else {
-            try? FileManager.default.removeItem(at: temporary)
-            throw AssistantDDIError.sizeLimit
-        }
-        // Own the file before invalidating the temporary download session.
-        let owned = FileManager.default.temporaryDirectory.appendingPathComponent("assistant-ddi-" + UUID().uuidString)
-        do { try FileManager.default.moveItem(at: temporary, to: owned) }
-        catch { throw AssistantDDIFailure.convert(error, stage: .cacheCommit) }
-        return (owned, response)
+        let download = AssistantDDIDownload(limit: limit)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                download.start(url: url, continuation: continuation)
+            }
+        } onCancel: { download.cancel() }
     }
 
     static func verify(_ url: URL, asset: AssistantDDIManifest.Asset) throws -> Bool {

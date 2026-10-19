@@ -107,6 +107,7 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
         server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         server.arguments = ["-u", "-c", """
         from http.server import HTTPServer, BaseHTTPRequestHandler
+        import time
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 if self.path == '/redirect':
@@ -118,6 +119,13 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
                     self.send_header('Content-Length', '32')
                     self.end_headers()
                     self.wfile.write(b'x' * 32)
+                elif self.path == '/slow':
+                    self.send_response(200)
+                    self.send_header('Content-Length', '7')
+                    self.end_headers()
+                    time.sleep(2)
+                    try: self.wfile.write(b'ddi-ok!')
+                    except BrokenPipeError: pass
                 else:
                     self.send_response(200)
                     self.send_header('Content-Length', '7')
@@ -149,6 +157,16 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
             try? FileManager.default.removeItem(at: large)
             fatalError("Oversized response accepted")
         } catch AssistantDDIError.sizeLimit {}
+        let realCancellation = Task {
+            try await AssistantDDIAssets.downloadAsset(URL(string:"http://127.0.0.1:\(port)/slow")!, 7)
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        realCancellation.cancel()
+        do {
+            let (unexpected, _) = try await realCancellation.value
+            try? FileManager.default.removeItem(at: unexpected)
+            fatalError("Real download cancellation ignored")
+        } catch is CancellationError {}
         print("DDI version dispatch, pinned manifests, disk cache, integrity, HTTP failure and cancellation tests passed")
         print("Real URLSession disk-download lifetime and redirect refusal tests passed")
         print("Staged preload/offline cache, partial recovery, safe diagnostic classification and transfer-limit tests passed")
