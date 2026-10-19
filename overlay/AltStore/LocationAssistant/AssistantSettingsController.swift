@@ -15,12 +15,16 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
         title = "设置"
         session.$busy.sink { [weak self] _ in self?.tableView.reloadData() }.store(in: &observations)
     }
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 12 }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 13 }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        cell.textLabel?.text = ["导入本设备配对文件", "设备 IP", "检查定位连接", "安装与恢复指南", "脱敏诊断信息", "开源项目与许可证", "重启后确认真实位置已恢复", "导入续签证书", "登录服务", "检查登录服务", "重建登录认证缓存", "准备定位开发服务"][indexPath.row]
+        cell.textLabel?.text = ["导入本设备配对文件", "设备 IP", "检查定位连接", "安装与恢复指南", "脱敏诊断信息", "开源项目与许可证", "重启后确认真实位置已恢复", "导入续签证书", "登录服务", "检查登录服务", "重建登录认证缓存", "提前下载开发者映像", "准备定位开发服务"][indexPath.row]
+        cell.textLabel?.numberOfLines = 0
+        cell.detailTextLabel?.numberOfLines = 0
         if indexPath.row == 1 { cell.detailTextLabel?.text = session.deviceIP }
         if indexPath.row == 8 { cell.detailTextLabel?.text = AssistantLoginPolicy.serviceLabel }
+        if indexPath.row == 11 { cell.detailTextLabel?.text = "约 17 MB，可在连接 LocalDevVPN 之前完成" }
+        if indexPath.row == 12 { cell.detailTextLabel?.text = "连接 LocalDevVPN 后检查并挂载" }
         cell.textLabel?.textColor = session.busy || importing ? .secondaryLabel : .label
         cell.accessoryType = .disclosureIndicator
         return cell
@@ -112,9 +116,13 @@ final class AssistantSettingsController: UITableViewController, UIDocumentPicker
                 }
             }
         case 11:
+            if session.needsClear { show("请先清除模拟定位", "先清除当前模拟，再提前下载映像。"); return }
+            session.downloadDeveloperImages()
+            show("正在提前下载映像", "这一步不需要连接 LocalDevVPN。请使用能访问下载源的网络，并保持 App 在前台。\n\n点知道了后到定位页查看状态；显示已下载并校验后，再切换到 LocalDevVPN，返回设置准备定位开发服务。")
+        case 12:
             if session.needsClear { show("请先清除模拟定位", "若清除时需要开发者映像，会自动准备；当前请先在定位页清除模拟。"); return }
             session.prepareDeveloperServices()
-            show("正在准备开发服务", "请保持 App 在前台。准备状态显示在定位页；首次缺少映像时需要联网下载约 17 MB。此操作不提交模拟位置，也不验证 Apple 登录。")
+            show("正在准备开发服务", "请连接 LocalDevVPN 并保持 App 在前台，到定位页查看状态。\n\n如果当前网络无法访问下载源，请先用提前下载开发者映像完成下载与校验，再切换到 LocalDevVPN 执行本步骤。")
         default: break
         }
     }

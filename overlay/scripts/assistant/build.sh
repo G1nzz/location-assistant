@@ -16,10 +16,10 @@ xcrun swiftc AltStore/LocationAssistant/AssistantHealthPolicy.swift tests/assist
 .build/health-tests
 xcrun swiftc -parse-as-library AltStore/LocationAssistant/AssistantPairingPolicy.swift AltStore/LocationAssistant/AssistantFavoriteStore.swift AltStore/LocationAssistant/AssistantHealthPolicy.swift Dependencies/SideSign/Sources/Anisette/AnisetteSocketDeadline.swift SideStore/DeepLinks/URLHandler.swift tests/assistant/review/main.swift -o .build/review-tests
 .build/review-tests
-xcrun swiftc -parse-as-library AltStore/LocationAssistant/AssistantDDIAssets.swift tests/assistant/ddi/main.swift -o .build/ddi-tests
+xcrun swiftc -parse-as-library AltStore/LocationAssistant/AssistantDDIAssets.swift AltStore/LocationAssistant/AssistantDDIFailure.swift tests/assistant/ddi/main.swift -o .build/ddi-tests
 .build/ddi-tests
 xcrun clang -c tests/assistant/native/TestBridge.c -o .build/native-bridge.o
-xcrun swiftc -I tests/assistant/native AltStore/LocationAssistant/AssistantPairingPolicy.swift AltStore/LocationAssistant/AssistantHealthPolicy.swift AltStore/LocationAssistant/AssistantCoordinate.swift AltStore/LocationAssistant/AssistantNative.swift AltStore/LocationAssistant/AssistantDDIAssets.swift tests/assistant/native/PairingStub.swift tests/assistant/native/main.swift .build/native-bridge.o -o .build/native-tests
+xcrun swiftc -I tests/assistant/native AltStore/LocationAssistant/AssistantPairingPolicy.swift AltStore/LocationAssistant/AssistantHealthPolicy.swift AltStore/LocationAssistant/AssistantCoordinate.swift AltStore/LocationAssistant/AssistantNative.swift AltStore/LocationAssistant/AssistantDDIAssets.swift AltStore/LocationAssistant/AssistantDDIFailure.swift tests/assistant/native/PairingStub.swift tests/assistant/native/main.swift .build/native-bridge.o -o .build/native-tests
 .build/native-tests
 xcodebuild -quiet archive -project AltStore.xcodeproj -scheme SideStore -sdk iphoneos \
   -configuration Release -destination 'generic/platform=iOS' \
@@ -49,5 +49,5 @@ cp AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved 
 cp docs/安装与恢复指南.md docs/验收记录.md .build/artifacts/
 cp docs/0.1.2-登录修复与更新.md .build/artifacts/
 cp docs/0.2.0-重构说明.md .build/artifacts/
-cp docs/0.2.1-内部审查.md docs/0.2.2-开发者服务准备.md .build/artifacts/
+cp docs/0.2.1-内部审查.md docs/0.2.2-开发者服务准备.md docs/0.2.3-映像提前下载与诊断.md .build/artifacts/
 echo 'IPA generated; on-device validation is still required.'

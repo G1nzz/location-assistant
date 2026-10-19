@@ -32,6 +32,12 @@ def main():
     assert start.index('try await prepareDeveloperServices(ip: ip)') < start.index('setNeedsClear(true)') < start.index('AssistantNative.set(')
     assert 'Task.detached(priority: .utility)' in session
     assert 'preparationTask?.cancel()' in session
+    for name in ['func downloadDeveloperImages()', 'private func downloadDeveloperImages(method:']:
+        preload = body(session, name)
+        assert 'AssistantNative' not in preload and 'native {' not in preload
+        assert 'signIn' not in preload and 'CertificateManager' not in preload
+    assert 'diagnostic = failure.diagnostic' in session
+    assert 'func prepare(method:' in read('AltStore/LocationAssistant/AssistantDDIAssets.swift')
     assert 'recordNativeFailure(stage: "清除模拟"' in session
     assert 'pausesLocationUpdatesAutomatically = false' in session
     assert 'locationManagerDidPauseLocationUpdates' in session

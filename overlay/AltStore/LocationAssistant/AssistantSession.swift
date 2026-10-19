@@ -85,24 +85,45 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         try Task.checkCancellation()
         if code == 0 { return }
         guard code == 20 else { throw AssistantDDIError.native(code) }
-        let assets = try AssistantDDIAssets.installed()
+        let directory = try await downloadDeveloperImages(method: method)
+        try Task.checkCancellation()
+        status = "正在挂载开发者映像，请保持 App 在前台…"
+        let result = await native { AssistantNative.mountDDI(ip: ip, method: method, directory: directory) }
+        try Task.checkCancellation()
+        guard result == 0 else { throw AssistantDDIError.native(result) }
+    }
+
+    // This path intentionally has no device connection, account or certificate
+    // prerequisite. Complete it on a reachable network before changing VPN.
+    private func downloadDeveloperImages(method: AssistantDDIMethod) async throws -> URL {
         let ticket = generation
         let download = Task.detached(priority: .utility) {
-            try await assets.prepare(method: method) { message in
+            let assets = try AssistantDDIAssets.installed()
+            return try await assets.prepare(method: method) { message in
                 Task { @MainActor in
                     guard self.busy, self.generation == ticket, self.preparationTask != nil else { return }
                     self.status = message
                 }
             }
         }
-        let directory = try await withTaskCancellationHandler {
+        return try await withTaskCancellationHandler {
             try await download.value
         } onCancel: { download.cancel() }
-        try Task.checkCancellation()
-        status = "正在挂载开发者映像，请保持 App 在前台…"
-        let result = await native { AssistantNative.mountDDI(ip: ip, method: method, directory: directory) }
-        try Task.checkCancellation()
-        guard result == 0 else { throw AssistantDDIError.native(result) }
+    }
+
+    func downloadDeveloperImages() {
+        guard beginMaintenance() else { return }
+        generation += 1
+        let method = AssistantDDIMethod.current
+        status = "正在准备提前下载映像…"
+        preparationTask = Task {
+            defer { busy = false; preparationTask = nil }
+            do {
+                _ = try await downloadDeveloperImages(method: method)
+                try Task.checkCancellation()
+                status = "映像文件已下载并校验；现在可切换到 LocalDevVPN，再到设置准备定位开发服务。尚未挂载或模拟定位。"
+            } catch { preparationFailed(error) }
+        }
     }
 
     func prepareDeveloperServices() {
@@ -122,13 +143,28 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         activeCoordinate = nil
         locationManager.stopUpdatingLocation()
         let message: String
-        if error is CancellationError { message = "准备已取消，请保持 App 在前台后重试" }
-        else if let ddi = error as? AssistantDDIError {
-            if case .native(let code) = ddi, code < 20 { message = Self.failure(code) }
-            else { message = ddi.localizedDescription }
-        } else { message = "开发者映像准备失败，请检查网络及设备空间后重试；不需要重新登录签名账号" }
+        let diagnostic: String
+        if error is CancellationError {
+            message = "准备已取消，请保持 App 在前台；下载完成后再切换 VPN"
+            diagnostic = "阶段：开发者映像处理\n结果：操作取消"
+        } else if let failure = error as? AssistantDDIFailure {
+            message = failure.localizedDescription
+            diagnostic = failure.diagnostic
+        } else if let ddi = error as? AssistantDDIError {
+            if case .native(let code) = ddi {
+                message = code < 20 ? Self.failure(code) : ddi.localizedDescription
+                diagnostic = "阶段：开发者服务连接/挂载\n原生阶段代码：\(code)\n" + message
+            } else {
+                message = ddi.localizedDescription
+                diagnostic = "阶段：开发者映像处理\n" + message
+            }
+        } else {
+            let failure = AssistantDDIFailure(stage: .preparation, error: error)
+            message = failure.localizedDescription
+            diagnostic = failure.diagnostic
+        }
         status = message + (needsClear ? "；原模拟可能仍有效，结束时仍需清除。" : "")
-        UserDefaults.standard.set("阶段：开发者服务准备\n" + status, forKey: "assistant.lastFailure")
+        UserDefaults.standard.set(diagnostic, forKey: "assistant.lastFailure")
     }
 
     @objc private func enteredBackground() {
@@ -331,6 +367,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     static func safeError(_ error: Error) -> String {
+        if let failure = error as? AssistantDDIFailure { return failure.localizedDescription }
         if let ddi = error as? AssistantDDIError { return ddi.localizedDescription }
         if let pairingError = error as? AssistantPairingError { return pairingError.localizedDescription }
         if let certificateError = error as? AssistantCertificateError { return certificateError.localizedDescription }

@@ -42,12 +42,13 @@ struct AssistantDDIManifest: Codable, Sendable {
 }
 
 enum AssistantDDIError: LocalizedError {
-    case manifest, response, integrity, native(Int32)
+    case manifest, response(Int?), integrity, sizeLimit, native(Int32)
     var errorDescription: String? {
         switch self {
         case .manifest: return "本版开发者映像配置无效，请保留 App 数据并更新安装包。"
-        case .response: return "开发者映像下载失败，请检查网络后重试；不需要重新登录签名账号。"
+        case .response(let status): return "下载服务器响应异常\(status.map { "（HTTP \($0)）" } ?? "")，请检查网络后重试提前下载映像。"
         case .integrity: return "开发者映像大小或校验值不符，已拒绝使用；请重试下载。"
+        case .sizeLimit: return "下载大小超过固定映像清单的限制，已中止下载；请检查下载响应后重试。"
         case .native(let code): return AssistantDDIStatus.message(code)
         }
     }
@@ -71,10 +72,16 @@ enum AssistantDDIStatus {
 // outside the pinned HTTPS host. No account, pairing or certificate is supplied.
 private final class AssistantDDIDownloadLimit: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     let limit: Int64
+    private let lock = NSLock()
+    private var exceeded = false
+    var exceededLimit: Bool { lock.lock(); defer { lock.unlock() }; return exceeded }
     init(limit: Int) { self.limit = Int64(limit) }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        if totalBytesWritten > limit || totalBytesExpectedToWrite > limit { downloadTask.cancel() }
+        if totalBytesWritten > limit || totalBytesExpectedToWrite > limit {
+            lock.lock(); exceeded = true; lock.unlock()
+            downloadTask.cancel()
+        }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
@@ -90,6 +97,7 @@ struct AssistantDDIAssets {
     let download: Download
 
     static func installed() throws -> Self {
+        do {
         guard let file = Bundle.main.url(forResource: "AssistantDDIManifest", withExtension: "json") else {
             throw AssistantDDIError.manifest
         }
@@ -97,6 +105,7 @@ struct AssistantDDIAssets {
         let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AssistantDDI", isDirectory: true)
         return Self(manifest: manifest, root: root, download: downloadAsset)
+        } catch { throw AssistantDDIFailure.convert(error, stage: .configuration) }
     }
 
     static func downloadAsset(_ url: URL, _ limit: Int) async throws -> (URL, URLResponse) {
@@ -106,10 +115,22 @@ struct AssistantDDIAssets {
         configuration.urlCache = nil
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
-        let (temporary, response) = try await session.download(from: url, delegate: AssistantDDIDownloadLimit(limit: limit))
+        let limiter = AssistantDDIDownloadLimit(limit: limit)
+        let result: (URL, URLResponse)
+        do { result = try await session.download(from: url, delegate: limiter) }
+        catch {
+            if limiter.exceededLimit { throw AssistantDDIError.sizeLimit }
+            throw error
+        }
+        let (temporary, response) = result
+        guard !limiter.exceededLimit else {
+            try? FileManager.default.removeItem(at: temporary)
+            throw AssistantDDIError.sizeLimit
+        }
         // Own the file before invalidating the temporary download session.
         let owned = FileManager.default.temporaryDirectory.appendingPathComponent("assistant-ddi-" + UUID().uuidString)
-        try FileManager.default.moveItem(at: temporary, to: owned)
+        do { try FileManager.default.moveItem(at: temporary, to: owned) }
+        catch { throw AssistantDDIFailure.convert(error, stage: .cacheCommit) }
         return (owned, response)
     }
 
@@ -128,10 +149,13 @@ struct AssistantDDIAssets {
     }
 
     func prepare(method: AssistantDDIMethod, progress: @escaping (String) -> Void) async throws -> URL {
-        let assets = try manifest.assets(for: method)
+        let assets: [AssistantDDIManifest.Asset]
+        do { assets = try manifest.assets(for: method) }
+        catch { throw AssistantDDIFailure.convert(error, stage: .configuration) }
         let directory = root.appendingPathComponent(manifest.commit, isDirectory: true)
             .appendingPathComponent(method.rawValue, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        catch { throw AssistantDDIFailure.convert(error, stage: .cacheDirectory) }
         for (index, asset) in assets.enumerated() {
             try Task.checkCancellation()
             progress("正在校验开发者映像 \(index + 1)/\(assets.count)…")
@@ -140,19 +164,30 @@ struct AssistantDDIAssets {
             catch is CancellationError { throw CancellationError() }
             catch { /* Unreadable/corrupt cache is replaced only after verification. */ }
             progress("正在下载开发者映像 \(index + 1)/\(assets.count)…")
-            let (temporary, response) = try await download(URL(string: asset.url)!, asset.size)
+            let result: (URL, URLResponse)
+            do { result = try await download(URL(string: asset.url)!, asset.size) }
+            catch { throw AssistantDDIFailure.convert(error, stage: .download, asset: asset.name) }
+            let (temporary, response) = result
             defer { try? FileManager.default.removeItem(at: temporary) }
             try Task.checkCancellation()
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-                  http.url?.absoluteString == asset.url else { throw AssistantDDIError.response }
-            guard try Self.verify(temporary, asset: asset) else { throw AssistantDDIError.integrity }
+            do {
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                      http.url?.absoluteString == asset.url else {
+                    throw AssistantDDIError.response((response as? HTTPURLResponse)?.statusCode)
+                }
+            } catch { throw AssistantDDIFailure.convert(error, stage: .download, asset: asset.name) }
+            do {
+                guard try Self.verify(temporary, asset: asset) else { throw AssistantDDIError.integrity }
+            } catch { throw AssistantDDIFailure.convert(error, stage: .verification, asset: asset.name) }
             // Stage on the same volume and publish one complete, verified file.
             let stage = directory.appendingPathComponent(UUID().uuidString + ".pending")
             defer { try? FileManager.default.removeItem(at: stage) }
-            try FileManager.default.copyItem(at: temporary, to: stage)
-            if FileManager.default.fileExists(atPath: target.path) {
-                _ = try FileManager.default.replaceItemAt(target, withItemAt: stage)
-            } else { try FileManager.default.moveItem(at: stage, to: target) }
+            do {
+                try FileManager.default.copyItem(at: temporary, to: stage)
+                if FileManager.default.fileExists(atPath: target.path) {
+                    _ = try FileManager.default.replaceItemAt(target, withItemAt: stage)
+                } else { try FileManager.default.moveItem(at: stage, to: target) }
+            } catch { throw AssistantDDIFailure.convert(error, stage: .cacheCommit, asset: asset.name) }
         }
         return directory
     }

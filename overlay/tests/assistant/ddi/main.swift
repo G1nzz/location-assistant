@@ -40,12 +40,51 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
                 return (tmp, HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!)
             }
             do { _ = try await bad.prepare(method: .personalized) { _ in }; fatalError("Bad transfer accepted") }
-            catch is AssistantDDIError {}
+            catch let failure as AssistantDDIFailure {
+                expect(failure.stage == (status == 200 ? .verification : .download), "Preserve the real failure stage")
+                expect(failure.code == (status == 200 ? 3 : 502), "Preserve integrity/HTTP code")
+            }
             expect(!FileManager.default.fileExists(atPath: bad.root.appendingPathComponent(commit+"/personalized/Image.dmg").path), "Never publish bad data")
         }
         let cancelled = AssistantDDIAssets(manifest: manifest, root: root.appendingPathComponent("cancelled")) { _,_ in throw CancellationError() }
         do { _ = try await cancelled.prepare(method: .personalized) { _ in }; fatalError("Cancellation swallowed") }
         catch is CancellationError {}
+        let timeout = AssistantDDIAssets(manifest: manifest, root: root.appendingPathComponent("timeout")) { _,_ in
+            throw NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut,
+                userInfo: [NSLocalizedDescriptionKey: "secret-url.example/account/private", NSURLErrorFailingURLErrorKey: URL(string:"https://secret.example/private")!])
+        }
+        do { _ = try await timeout.prepare(method: .personalized) { _ in }; fatalError("Timeout swallowed") }
+        catch let failure as AssistantDDIFailure {
+            expect(failure.stage == .download && failure.code == NSURLErrorTimedOut, "Network stage/code")
+            expect(failure.domain == NSURLErrorDomain && failure.asset == "Image.dmg", "Safe network diagnostic")
+            expect(!failure.diagnostic.contains("secret") && !failure.diagnostic.contains("private"), "Never include URL or raw localized error")
+        }
+        let redacted = AssistantDDIFailure(stage: .cacheCommit, asset: "/private/user@example.com.p12",
+            error: NSError(domain: "user@example.com", code: 123, userInfo: [NSLocalizedDescriptionKey:"secret"]))
+        expect(redacted.asset == nil && redacted.domain == "其他错误域", "Allowlist domains and resource names")
+        expect(!redacted.diagnostic.contains("example.com") && !redacted.diagnostic.contains("secret"), "Diagnostic privacy")
+        let fullDisk = AssistantDDIFailure(stage: .cacheCommit, error: NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError))
+        expect(fullDisk.errorDescription?.contains("空间不足") == true, "Storage exhaustion differs from network")
+        let blocked = root.appendingPathComponent("blocked")
+        try Data([0]).write(to: blocked)
+        let blockedCache = AssistantDDIAssets(manifest: manifest, root: blocked, download: good)
+        do { _ = try await blockedCache.prepare(method: .personalized) { _ in }; fatalError("Bad cache path accepted") }
+        catch let failure as AssistantDDIFailure { expect(failure.stage == .cacheDirectory, "Cache creation failure stage") }
+        var attempts = 0
+        let interrupted = AssistantDDIAssets(manifest: manifest, root: root.appendingPathComponent("partial")) { url, size in
+            attempts += 1
+            if attempts == 2 { throw NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost) }
+            return try await good(url, size)
+        }
+        do { _ = try await interrupted.prepare(method: .personalized) { _ in }; fatalError("Interrupted download accepted") }
+        catch let failure as AssistantDDIFailure { expect(failure.stage == .download, "Interrupted transfer classification") }
+        let first = interrupted.root.appendingPathComponent(commit+"/personalized/Image.dmg")
+        expect(try AssistantDDIAssets.verify(first, asset: files[0]), "Keep already verified assets after interruption")
+        let offline = AssistantDDIAssets(manifest: manifest, root: interrupted.root, download: good)
+        let ready = try await offline.prepare(method: .personalized) { _ in }
+        let noNetwork = AssistantDDIAssets(manifest: manifest, root: offline.root) { _,_ in fatalError("Verified preload must survive the network change without download") }
+        _ = try await noNetwork.prepare(method: .personalized) { _ in }
+        expect(try AssistantDDIAssets.verify(ready.appendingPathComponent("Image.dmg"), asset: files[0]), "Offline staged preparation")
         let delayed = AssistantDDIAssets(manifest: manifest, root: root.appendingPathComponent("task-cancelled")) { url,_ in
             try await Task.sleep(nanoseconds: 10_000_000_000)
             return try await good(url, payload.count)
@@ -74,6 +113,11 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
                     self.send_response(302)
                     self.send_header('Location', '/unexpected')
                     self.end_headers()
+                elif self.path == '/oversized':
+                    self.send_response(200)
+                    self.send_header('Content-Length', '32')
+                    self.end_headers()
+                    self.wfile.write(b'x' * 32)
                 else:
                     self.send_response(200)
                     self.send_header('Content-Length', '7')
@@ -100,7 +144,13 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
         let (redirected, redirectResponse) = try await AssistantDDIAssets.downloadAsset(URL(string: "http://127.0.0.1:\(port)/redirect")!, 100)
         defer { try? FileManager.default.removeItem(at: redirected) }
         expect((redirectResponse as? HTTPURLResponse)?.statusCode == 302, "Redirect must not be followed")
+        do {
+            let (large, _) = try await AssistantDDIAssets.downloadAsset(URL(string:"http://127.0.0.1:\(port)/oversized")!, 7)
+            try? FileManager.default.removeItem(at: large)
+            fatalError("Oversized response accepted")
+        } catch AssistantDDIError.sizeLimit {}
         print("DDI version dispatch, pinned manifests, disk cache, integrity, HTTP failure and cancellation tests passed")
         print("Real URLSession disk-download lifetime and redirect refusal tests passed")
+        print("Staged preload/offline cache, partial recovery, safe diagnostic classification and transfer-limit tests passed")
     }
 }

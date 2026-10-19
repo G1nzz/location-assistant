@@ -38,4 +38,4 @@ bash project/scripts/assistant/build.sh
 
 安装流程与恢复位置见 `overlay/docs/安装与恢复指南.md`。不要上传 Apple 账号、配对文件、UDID、证书或私人收藏。项目采用 AGPL-3.0，来源详见 `THIRD_PARTY_NOTICES.md`。
 
-当前内审版本：0.2.2（构建 6）。新增开发者映像检查、固定资源下载校验、挂载及复查，详见 overlay/docs/0.2.2-开发者服务准备.md。真机测试仍暂缓。
+当前修复版本：0.2.3（构建 7）。新增独立的映像提前下载入口，允许先完成下载，再切换到 LocalDevVPN 挂载；失败时保留安全的阶段、错误域和代码。详见 overlay/docs/0.2.3-映像提前下载与诊断.md。0.2.3 尚未真机验证。
