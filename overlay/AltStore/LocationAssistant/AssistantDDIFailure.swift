@@ -3,6 +3,7 @@ import Foundation
 enum AssistantDDIStage: String, Sendable {
     case configuration = "读取映像配置"
     case cacheDirectory = "创建映像缓存"
+    case bundledRead = "读取安装包内开发者映像"
     case download = "下载开发者映像"
     case verification = "校验开发者映像"
     case cacheCommit = "保存已验证映像"
@@ -32,12 +33,16 @@ struct AssistantDDIFailure: LocalizedError, Sendable {
             case .sizeLimit: code = 4
             case .native(let value): code = Int(value)
             }
-            advice = ddi.localizedDescription
+            if case .integrity = ddi, stage == .bundledRead {
+                advice = "安装包内开发者映像校验失败，已停止使用。请保留 App 数据并重新安装完整的本版安装包。"
+            } else { advice = ddi.localizedDescription }
         } else {
             domain = [NSURLErrorDomain, NSCocoaErrorDomain, NSPOSIXErrorDomain].contains(ns.domain) ? ns.domain : "其他错误域"
             code = ns.code
             if ns.domain == NSURLErrorDomain {
                 switch ns.code {
+                case NSURLErrorBadURL, NSURLErrorUnsupportedURL:
+                    advice = "下载请求未能建立。请保留脱敏诊断信息，以便检查映像资源与下载请求。"
                 case NSURLErrorTimedOut: advice = "下载连接超时。请先用能访问下载源的网络，在设置中单独下载映像。"
                 case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed: advice = "下载域名解析失败。请检查当前网络，再尝试提前下载映像。"
                 case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost, NSURLErrorCannotConnectToHost:

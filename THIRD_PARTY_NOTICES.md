@@ -17,4 +17,6 @@
 
 ## 0.2.2 DDI preparation
 
-The DDI selection and mounting integration is adapted from pinned StikDebug 3.1.13 (AGPL-3.0); original author notices remain above. Public Apple developer images are downloaded on-device from doronz88/DeveloperDiskImage commit 6eae353ae694bda1c421d4a3eee5459ae59c99a1. Exact files, sizes and SHA-256 values are recorded in upstream-lock.json. No DDI binaries or private pairing/account data are included in this repository or IPA.
+The DDI selection and mounting integration is adapted from pinned StikDebug 3.1.13 (AGPL-3.0); original author notices remain above. Apple developer image assets are obtained from doronz88/DeveloperDiskImage commit 6eae353ae694bda1c421d4a3eee5459ae59c99a1. Exact files, sizes and SHA-256 values are recorded in upstream-lock.json. These Apple-provided binary assets are not covered by this project's AGPL license. No DDI binaries or private pairing/account data are committed to this repository.
+
+Starting with 0.2.5, the build downloads and verifies both pinned DDI sets and includes them unchanged in the IPA under AssistantDDI/personalized and AssistantDDI/cryptex. The installed app verifies their sizes and SHA-256 values again before use, so a device does not need to reach GitHub to prepare the image files. The source archive contains the pinned manifest and reproducible fetching/packaging scripts, not the binary images. Account authentication, Apple personalization services and the LocalDevVPN device tunnel remain separate operations.

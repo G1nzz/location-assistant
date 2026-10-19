@@ -177,7 +177,16 @@ struct AssistantDDIAssets {
     typealias Download = (URL, Int) async throws -> (URL, URLResponse)
     let manifest: AssistantDDIManifest
     let root: URL
+    let bundledRoot: URL?
     let download: Download
+
+    init(manifest: AssistantDDIManifest, root: URL, bundledRoot: URL? = nil,
+         download: @escaping Download) {
+        self.manifest = manifest
+        self.root = root
+        self.bundledRoot = bundledRoot
+        self.download = download
+    }
 
     static func installed() throws -> Self {
         do {
@@ -187,7 +196,8 @@ struct AssistantDDIAssets {
         let manifest = try JSONDecoder().decode(AssistantDDIManifest.self, from: Data(contentsOf: file))
         let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AssistantDDI", isDirectory: true)
-        return Self(manifest: manifest, root: root, download: downloadAsset)
+        let bundledRoot = Bundle.main.resourceURL?.appendingPathComponent("AssistantDDI", isDirectory: true)
+        return Self(manifest: manifest, root: root, bundledRoot: bundledRoot, download: downloadAsset)
         } catch { throw AssistantDDIFailure.convert(error, stage: .configuration) }
     }
 
@@ -201,6 +211,7 @@ struct AssistantDDIAssets {
     }
 
     static func verify(_ url: URL, asset: AssistantDDIManifest.Asset) throws -> Bool {
+        try Task.checkCancellation()
         guard (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) == asset.size else { return false }
         let file = try FileHandle(forReadingFrom: url)
         defer { try? file.close() }
@@ -212,6 +223,47 @@ struct AssistantDDIAssets {
             hash.update(data: data)
         }
         return hash.finalize().map { String(format: "%02x", $0) }.joined() == asset.sha256
+    }
+
+    // A missing bundled file retains the existing download fallback. A file
+    // that exists but cannot be read or verified must never silently fall back.
+    private func bundledAsset(_ asset: AssistantDDIManifest.Asset) throws -> URL? {
+        guard let bundledRoot else { return nil }
+        let source = bundledRoot.appendingPathComponent(asset.method.rawValue, isDirectory: true)
+            .appendingPathComponent(asset.name)
+        do {
+            let values = try source.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true, try Self.verify(source, asset: asset) else {
+                throw AssistantDDIError.integrity
+            }
+            return source
+        } catch {
+            let ns = error as NSError
+            if ns.domain == NSCocoaErrorDomain &&
+                [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(ns.code) { return nil }
+            throw AssistantDDIFailure.convert(error, stage: .bundledRead, asset: asset.name)
+        }
+    }
+
+    // Copy before publishing so the immutable app bundle remains untouched.
+    // Verify the copy too, then commit only a complete file on the same volume.
+    private func publish(_ source: URL, asset: AssistantDDIManifest.Asset,
+                         directory: URL, target: URL) throws {
+        try Task.checkCancellation()
+        let stage = directory.appendingPathComponent(UUID().uuidString + ".pending")
+        defer { try? FileManager.default.removeItem(at: stage) }
+        do { try FileManager.default.copyItem(at: source, to: stage) }
+        catch { throw AssistantDDIFailure.convert(error, stage: .cacheCommit, asset: asset.name) }
+        do {
+            try Task.checkCancellation()
+            guard try Self.verify(stage, asset: asset) else { throw AssistantDDIError.integrity }
+        } catch { throw AssistantDDIFailure.convert(error, stage: .verification, asset: asset.name) }
+        do {
+            try Task.checkCancellation()
+            if FileManager.default.fileExists(atPath: target.path) {
+                _ = try FileManager.default.replaceItemAt(target, withItemAt: stage)
+            } else { try FileManager.default.moveItem(at: stage, to: target) }
+        } catch { throw AssistantDDIFailure.convert(error, stage: .cacheCommit, asset: asset.name) }
     }
 
     func prepare(method: AssistantDDIMethod, progress: @escaping (String) -> Void) async throws -> URL {
@@ -229,6 +281,11 @@ struct AssistantDDIAssets {
             do { if try Self.verify(target, asset: asset) { continue } }
             catch is CancellationError { throw CancellationError() }
             catch { /* Unreadable/corrupt cache is replaced only after verification. */ }
+            progress("正在读取安装包内开发者映像 \(index + 1)/\(assets.count)…")
+            if let bundled = try bundledAsset(asset) {
+                try publish(bundled, asset: asset, directory: directory, target: target)
+                continue
+            }
             progress("正在下载开发者映像 \(index + 1)/\(assets.count)…")
             let result: (URL, URLResponse)
             do { result = try await download(URL(string: asset.url)!, asset.size) }
@@ -245,15 +302,7 @@ struct AssistantDDIAssets {
             do {
                 guard try Self.verify(temporary, asset: asset) else { throw AssistantDDIError.integrity }
             } catch { throw AssistantDDIFailure.convert(error, stage: .verification, asset: asset.name) }
-            // Stage on the same volume and publish one complete, verified file.
-            let stage = directory.appendingPathComponent(UUID().uuidString + ".pending")
-            defer { try? FileManager.default.removeItem(at: stage) }
-            do {
-                try FileManager.default.copyItem(at: temporary, to: stage)
-                if FileManager.default.fileExists(atPath: target.path) {
-                    _ = try FileManager.default.replaceItemAt(target, withItemAt: stage)
-                } else { try FileManager.default.moveItem(at: stage, to: target) }
-            } catch { throw AssistantDDIFailure.convert(error, stage: .cacheCommit, asset: asset.name) }
+            try publish(temporary, asset: asset, directory: directory, target: target)
         }
         return directory
     }

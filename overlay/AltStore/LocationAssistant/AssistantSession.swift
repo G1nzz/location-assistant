@@ -94,7 +94,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     // This path intentionally has no device connection, account or certificate
-    // prerequisite. Complete it on a reachable network before changing VPN.
+    // prerequisite. Verified bundled resources also work without network access.
     private func downloadDeveloperImages(method: AssistantDDIMethod) async throws -> URL {
         let ticket = generation
         let download = Task.detached(priority: .utility) {
@@ -113,21 +113,21 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
 
     func downloadDeveloperImages() {
         // Cache-only work is safe while a previous simulated position is
-        // unknown. Do not force a successful clear before downloading the
+        // unknown. Do not force a successful clear before preparing the
         // resources that clear may itself need. Block an actively held session.
         guard !busy, activeCoordinate == nil else { return }
         busy = true
         generation += 1
         let method = AssistantDDIMethod.current
-        status = "正在准备提前下载映像…"
+        status = "正在准备本地开发者映像…"
         preparationTask = Task {
             defer { busy = false; preparationTask = nil }
             do {
                 _ = try await downloadDeveloperImages(method: method)
                 try Task.checkCancellation()
                 status = needsClear
-                    ? "映像文件已下载并校验；请切换到 LocalDevVPN，再到定位页清除遗留模拟。未知模拟记录仍保留。"
-                    : "映像文件已下载并校验；现在可切换到 LocalDevVPN，再到设置准备定位开发服务。尚未挂载或模拟定位。"
+                    ? "映像文件已准备并校验；请连接 LocalDevVPN，再到定位页清除遗留模拟。未知模拟记录仍保留。"
+                    : "映像文件已准备并校验；请连接 LocalDevVPN，再到设置准备定位开发服务。尚未挂载或模拟定位。"
             } catch { preparationFailed(error) }
         }
     }
@@ -151,7 +151,7 @@ final class AssistantSession: NSObject, ObservableObject, CLLocationManagerDeleg
         let message: String
         let diagnostic: String
         if error is CancellationError {
-            message = "准备已取消，请保持 App 在前台；下载完成后再切换 VPN"
+            message = "准备已取消，请保持 App 在前台后重试"
             diagnostic = "阶段：开发者映像处理\n结果：操作取消"
         } else if let failure = error as? AssistantDDIFailure {
             message = failure.localizedDescription

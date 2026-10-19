@@ -65,6 +65,10 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
         expect(!redacted.diagnostic.contains("example.com") && !redacted.diagnostic.contains("secret"), "Diagnostic privacy")
         let fullDisk = AssistantDDIFailure(stage: .cacheCommit, error: NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError))
         expect(fullDisk.errorDescription?.contains("空间不足") == true, "Storage exhaustion differs from network")
+        let badURL = AssistantDDIFailure(stage: .download, asset: "BuildManifest.plist",
+            error: NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
+        expect(badURL.code == -1000 && badURL.advice.contains("请求未能建立") &&
+               !badURL.advice.contains("检查网络"), "Bad URL is not diagnosed as network reachability")
         let blocked = root.appendingPathComponent("blocked")
         try Data([0]).write(to: blocked)
         let blockedCache = AssistantDDIAssets(manifest: manifest, root: blocked, download: good)
@@ -94,10 +98,85 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
         task.cancel()
         do { _ = try await task.value; fatalError("Task cancellation swallowed") }
         catch is CancellationError {}
+        // A new installation must be able to prepare either method offline.
+        // Every fixture has its own exact bytes/digest, so a swapped method or
+        // stale file cannot accidentally satisfy these checks.
+        let bundledRoot = root.appendingPathComponent("bundle", isDirectory: true)
+        var bundledFiles: [AssistantDDIManifest.Asset] = []
+        for method in [AssistantDDIMethod.personalized, .cryptex] {
+            for file in try pinned.assets(for: method) {
+                let bytes = Data("offline \(method.rawValue)/\(file.name)".utf8)
+                let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+                let fixture = AssistantDDIManifest.Asset(method: method, name: file.name,
+                    url: "https://raw.githubusercontent.com/doronz88/DeveloperDiskImage/\(commit)/test/\(method.rawValue)/\(file.name)",
+                    size: bytes.count, sha256: digest)
+                bundledFiles.append(fixture)
+                let folder = bundledRoot.appendingPathComponent(method.rawValue, isDirectory: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try bytes.write(to: folder.appendingPathComponent(file.name))
+            }
+        }
+        let bundledManifest = AssistantDDIManifest(repository: manifest.repository, commit: commit, files: bundledFiles)
+        let rejectNetwork: AssistantDDIAssets.Download = { _,_ in
+            throw NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL)
+        }
+        let offlineAssets = AssistantDDIAssets(manifest: bundledManifest,
+            root: root.appendingPathComponent("offline-cache"), bundledRoot: bundledRoot, download: rejectNetwork)
+        for method in [AssistantDDIMethod.personalized, .cryptex] {
+            let folder = try await offlineAssets.prepare(method: method) { _ in }
+            for file in try bundledManifest.assets(for: method) {
+                expect(try AssistantDDIAssets.verify(folder.appendingPathComponent(file.name), asset: file), "Fresh offline cache digest")
+                expect(try AssistantDDIAssets.verify(bundledRoot.appendingPathComponent(method.rawValue).appendingPathComponent(file.name), asset: file), "Bundle source is not consumed or changed")
+            }
+        }
+        try FileManager.default.removeItem(at: offlineAssets.root)
+        for method in [AssistantDDIMethod.personalized, .cryptex] {
+            let rebuilt = try await offlineAssets.prepare(method: method) { _ in }
+            for file in try bundledManifest.assets(for: method) {
+                expect(try AssistantDDIAssets.verify(rebuilt.appendingPathComponent(file.name), asset: file), "Evicted cache rebuilds offline")
+            }
+        }
+        let damaged = bundledRoot.appendingPathComponent("cryptex/BuildManifest.plist")
+        let damagedAsset = try bundledManifest.assets(for: .cryptex).first { $0.name == "BuildManifest.plist" }!
+        try Data(repeating: 0, count: damagedAsset.size).write(to: damaged)
+        // A good cache remains authoritative even if an unused bundle file is damaged.
+        _ = try await offlineAssets.prepare(method: .cryptex) { _ in }
+        try FileManager.default.removeItem(at: offlineAssets.root)
+        do { _ = try await offlineAssets.prepare(method: .cryptex) { _ in }; fatalError("Corrupt bundled asset accepted") }
+        catch let failure as AssistantDDIFailure {
+            expect(failure.stage == .bundledRead && failure.code == 3 && failure.asset == "BuildManifest.plist", "Bad bundle fails closed without network fallback")
+            expect(failure.advice.contains("重新安装"), "Bad bundled bytes need an intact installation")
+        }
+        let rejectedTarget = offlineAssets.root.appendingPathComponent(commit+"/cryptex/BuildManifest.plist")
+        expect(!FileManager.default.fileExists(atPath: rejectedTarget.path), "Never publish corrupt bundle bytes")
+        let missingBundle = AssistantDDIAssets(manifest: manifest, root: root.appendingPathComponent("missing-bundle-cache"),
+            bundledRoot: root.appendingPathComponent("missing-bundle"), download: good)
+        _ = try await missingBundle.prepare(method: .personalized) { _ in }
+        let cancellationCache = root.appendingPathComponent("cancel-bundle-cache")
+        let cancellationAssets = AssistantDDIAssets(manifest: bundledManifest, root: cancellationCache,
+            bundledRoot: bundledRoot, download: rejectNetwork)
+        let cancelBundled = Task {
+            try await cancellationAssets.prepare(method: .personalized) { message in
+                if message.contains("读取安装包内") { withUnsafeCurrentTask { $0?.cancel() } }
+            }
+        }
+        do { _ = try await cancelBundled.value; fatalError("Bundled preparation cancellation ignored") }
+        catch is CancellationError {}
+        let cancellationDirectory = cancellationCache.appendingPathComponent(commit+"/personalized")
+        expect(try FileManager.default.contentsOfDirectory(atPath: cancellationDirectory.path).isEmpty,
+            "Cancelled bundled preparation publishes nothing and leaves no staging files")
         // Verify the exact pinned public assets too when provided by CI.
         if let path = ProcessInfo.processInfo.environment["ASSISTANT_DDI_FIXTURES"] {
             for file in pinned.files {
                 expect(try AssistantDDIAssets.verify(URL(fileURLWithPath: path).appendingPathComponent(file.method.rawValue+"/"+file.name), asset: file), "Pinned real asset digest")
+            }
+            let realOffline = AssistantDDIAssets(manifest: pinned, root: root.appendingPathComponent("real-offline-cache"),
+                bundledRoot: URL(fileURLWithPath: path, isDirectory: true), download: rejectNetwork)
+            for method in [AssistantDDIMethod.personalized, .cryptex] {
+                let prepared = try await realOffline.prepare(method: method) { _ in }
+                for file in try pinned.assets(for: method) {
+                    expect(try AssistantDDIAssets.verify(prepared.appendingPathComponent(file.name), asset: file), "Pinned public assets prepare offline")
+                }
             }
         }
         // Exercise the real URLSession path against a loopback fixture, with no
@@ -170,5 +249,6 @@ func expect(_ value: Bool, _ message: String) { if !value { fatalError(message) 
         print("DDI version dispatch, pinned manifests, disk cache, integrity, HTTP failure and cancellation tests passed")
         print("Real URLSession disk-download lifetime and redirect refusal tests passed")
         print("Staged preload/offline cache, partial recovery, safe diagnostic classification and transfer-limit tests passed")
+        print("Bundled DDI offline preparation for both methods, cache recovery, corruption rejection and cancellation tests passed")
     }
 }

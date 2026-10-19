@@ -3,6 +3,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 python3 -B scripts/assistant/prepare_dependencies.py
 python3 -B scripts/assistant/configure.py
+python3 -B scripts/assistant/prepare_ddi.py
+export ASSISTANT_DDI_FIXTURES="$PWD/.build/bundled-ddi"
+python3 -B scripts/assistant/check_bundled_ddi.py --self-test
 mkdir -p .build/artifacts
 python3 -B scripts/assistant/check_project.py
 python3 -B scripts/assistant/review_contracts.py
@@ -33,6 +36,7 @@ xcodebuild -quiet archive -project AltStore.xcodeproj -scheme SideStore -sdk iph
   ORG_IDENTIFIER=com.locationassistant 2>&1 | tee .build/build.log
 app=".build/Assistant.xcarchive/Products/Applications/SideStore.app"
 test -d "$app"
+python3 -B scripts/assistant/check_bundled_ddi.py --install-to "$app" --app "$app"
 ldid -SAltStore/Resources/ReleaseEntitlements.plist "$app/SideStore"
 # The upstream widget is outside the assistant scope and is not shipped.
 mkdir -p .build/package/Payload
@@ -46,6 +50,7 @@ assert plugins.resolve().is_relative_to(payload)
 if plugins.exists(): shutil.rmtree(plugins)
 PY
 (cd .build/package && zip -qry ../artifacts/LocationAssistant.ipa Payload)
+python3 -B scripts/assistant/check_bundled_ddi.py --ipa .build/artifacts/LocationAssistant.ipa
 (cd .build/artifacts && shasum -a 256 LocationAssistant.ipa > SHA256SUMS.txt)
 cp upstream-lock.json THIRD_PARTY_NOTICES.md LICENSE Vendor/StikDebug-LICENSE .build/artifacts/
 cp AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved .build/artifacts/
@@ -54,4 +59,5 @@ cp docs/0.1.2-登录修复与更新.md .build/artifacts/
 cp docs/0.2.0-重构说明.md .build/artifacts/
 cp docs/0.2.1-内部审查.md docs/0.2.2-开发者服务准备.md docs/0.2.3-映像提前下载与诊断.md .build/artifacts/
 cp docs/0.2.4-续签私钥保留与回执.md .build/artifacts/
+cp docs/0.2.5-本地开发者映像.md .build/artifacts/
 echo 'IPA generated; on-device validation is still required.'
